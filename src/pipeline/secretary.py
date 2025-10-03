@@ -23,7 +23,7 @@ class Secretary:
         self.ledger = ledger
 
         self.bag.load()
-        self.ledger.read_ledger()
+        # self.ledger.read_ledger()
 
     @property
     def bag_size(self) -> int:

@@ -27,6 +27,20 @@ S3Rec = namedtuple(
 )
 
 
+def objects_in_store():
+    s3_client = S3Client("/tmp")
+    paginator = s3_client.client.get_paginator("list_objects_v2")
+
+    page_iterator = paginator.paginate(Bucket=self.s3_client.bucket_name)
+    objects = []
+    for page in page_iterator:
+        contents = page.get("Contents", [])
+        for object in contents:
+            objects.append(S3Rec(**object))
+
+    return objects
+
+
 class Reporter:
     """Family of classes that gather information about aspects of GRIN
     and the GRIN pipeline: what barcodes have already been processed;
@@ -78,13 +92,21 @@ class ObjectStoreReporter(Reporter):
                 return ""
 
 
-class SecretaryReporter(Reporter):
-    def __init__(self, config: dict) -> None:
+class ConvertedReporter(Reporter):
+    """Snapshot of GRIN Converted Queue and what has already been
+    stored in AWS.
+    """
+
+    def __init__(self) -> None:
         super().__init__()
-        self.secretary = Secretary(
-            TokenBag(Path(config.get("global", {}).get("token_bag", None))),
-            BookLedger(Path(config.get("global", {}).get("ledger_file", None))),
-        )
+        self.s3_client = S3Client("/tmp")
+        self.grin_client = GrinClient()
+
+    def report(self):
+        grin_barcodes = set([rec["barcode"] for rec in GrinClient().converted_books])
+        stored_barcodes = set([obj.Key for obj in objects_in_store()])
+
+        converted_and_stored = grin_barcodes.intersect(stored_barcodes)
 
 
 class StatusReporter(Reporter):
