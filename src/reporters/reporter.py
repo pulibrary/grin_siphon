@@ -31,7 +31,7 @@ def objects_in_store():
     s3_client = S3Client("/tmp")
     paginator = s3_client.client.get_paginator("list_objects_v2")
 
-    page_iterator = paginator.paginate(Bucket=self.s3_client.bucket_name)
+    page_iterator = paginator.paginate(Bucket=s3_client.bucket_name)
     objects = []
     for page in page_iterator:
         contents = page.get("Contents", [])
@@ -90,6 +90,20 @@ class ObjectStoreReporter(Reporter):
                 return [ob.key for ob in self.objects_in_store()]
             case _:
                 return ""
+
+
+class ProgressReporter(Reporter):
+    """How many books have we processed so far?"""
+
+    def report(self):
+        all_grin_barcodes = [rec["barcode"] for rec in GrinClient().all_books]
+        stored_barcodes = [obj.Key for obj in objects_in_store()]
+        table = [
+            ["total in Google Books", len(all_grin_barcodes)],
+            ["total in AWS", len(stored_barcodes)],
+            ["percent done", (len(stored_barcodes) / len(all_grin_barcodes) * 100)],
+        ]
+        return table
 
 
 class ConvertedReporter(Reporter):
