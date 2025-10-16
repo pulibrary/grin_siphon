@@ -5,17 +5,18 @@
 # from the example given in the GRIN Overview document (not
 # publicly available.
 
-import os
-import httplib2
-import httpx
-import io
 import csv
 import functools
-import time
+import io
+import os
 import threading
-from dotenv import load_dotenv
-from clients.auth_util import load_creds_or_die, build_auth_header
+import time
 
+import httplib2
+import httpx
+from dotenv import load_dotenv
+
+from clients.auth_util import build_auth_header, load_creds_or_die
 
 load_dotenv()
 
@@ -245,6 +246,10 @@ class GrinClient:
             with open(outpath, "wb") as f:
                 for chunk in response.iter_bytes():
                     f.write(chunk)
+
+    def file_size(self, url) -> int:
+        response = httpx.head(url, allow_redirects=True)
+        return int(response.headers.get("Content-Length", 0))
 
     def download_book(self, barcode, target_dir):
         fname = f"{barcode}.tar.gz.gpg"
