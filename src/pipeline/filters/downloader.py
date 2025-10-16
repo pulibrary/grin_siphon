@@ -72,10 +72,10 @@ class Downloader(Filter):
     def enough_space_for(self, token) -> bool:
         """Check if there's enough disk space to download `url` into `target_dir`."""
         dest = token.content["processing_bucket"]
-        # Get file size from HTTP HEAD
-        response = httpx.head(url, allow_redirects=True)
-        size = int(response.headers.get("Content-Length", 0))
-        return free_space(dest) > size * margin
+        barcode = token.content["barcode"]
+        file_size = GrinClient().file_size(barcode)
+
+        return free_space(dest) > file_size * self.disk_threshold
 
     def validate_token(self, token: Token) -> bool:
         """Validate that the token has required fields for downloading.

@@ -247,8 +247,10 @@ class GrinClient:
                 for chunk in response.iter_bytes():
                     f.write(chunk)
 
-    def file_size(self, url) -> int:
-        response = httpx.head(url, allow_redirects=True)
+    def file_size(self, barcode) -> int:
+        fname = f"{barcode}.tar.gz.gpg"
+        src_url = self.resource_url(fname)
+        response = httpx.head(src_url, allow_redirects=True)
         return int(response.headers.get("Content-Length", 0))
 
     def download_book(self, barcode, target_dir):
