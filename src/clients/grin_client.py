@@ -250,7 +250,7 @@ class GrinClient:
     def file_size(self, barcode) -> int:
         fname = f"{barcode}.tar.gz.gpg"
         src_url = self.resource_url(fname)
-        response = httpx.head(src_url, allow_redirects=True)
+        response = httpx.head(src_url, follow_redirects=True)
         return int(response.headers.get("Content-Length", 0))
 
     def download_book(self, barcode, target_dir):
