@@ -135,7 +135,7 @@ def test_stop_filter_by_name_success(orchestrator, test_config):
             assert result is True
             assert len(orchestrator.processes) == 0
             mock_process.terminate.assert_called_once()
-            mock_process.wait.assert_called_once_with(timeout=5)
+            mock_process.wait.assert_called_once_with(timeout=60)
 
 
 def test_stop_filter_by_name_not_found(orchestrator, test_config):
@@ -153,7 +153,7 @@ def test_stop_filter_by_name_with_timeout(orchestrator, test_config):
             mock_process = Mock()
             mock_process.poll.return_value = None
             # Simulate timeout on wait
-            mock_process.wait.side_effect = subprocess.TimeoutExpired("cmd", 5)
+            mock_process.wait.side_effect = subprocess.TimeoutExpired("cmd", 60)
             mock_popen.return_value = mock_process
 
             # Start a filter
@@ -166,7 +166,7 @@ def test_stop_filter_by_name_with_timeout(orchestrator, test_config):
             assert result is True
             assert len(orchestrator.processes) == 0
             mock_process.terminate.assert_called_once()
-            mock_process.wait.assert_called_once_with(timeout=5)
+            mock_process.wait.assert_called_once_with(timeout=60)
             mock_process.kill.assert_called_once()
 
 

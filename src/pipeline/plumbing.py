@@ -1,5 +1,6 @@
 import json
 import logging
+import signal
 from datetime import datetime, timezone
 from pathlib import Path
 from time import sleep
@@ -263,9 +264,44 @@ class Filter:
         self.pipe = pipe
         self.stage_name: str = self.__class__.__name__.lower()
         self.poll_interval = poll_interval
+        self.shutdown_requested = False
+
+        # Set up signal handlers for graceful shutdown
+        signal.signal(signal.SIGTERM, self._handle_shutdown)
+        signal.signal(signal.SIGINT, self._handle_shutdown)
+
+        # Recover any orphaned tokens from previous interrupted runs
+        self._recover_orphaned_tokens()
 
     def log_to_token(self, token, level, message):
         token.write_log(message, level, self.stage_name)
+
+    def _handle_shutdown(self, signum, frame):
+        """Handle shutdown signals (SIGTERM, SIGINT) gracefully.
+
+        Sets a flag to request shutdown after the current token completes
+        processing. This ensures tokens are not left in an inconsistent state.
+
+        Args:
+            signum: Signal number
+            frame: Current stack frame
+        """
+        logging.info(f"{self.stage_name}: Shutdown signal received, will exit after current token")
+        self.shutdown_requested = True
+
+    def _recover_orphaned_tokens(self):
+        """Recover orphaned .bak files from previous interrupted runs.
+
+        When a filter process is killed abruptly, tokens may be left in .bak
+        state. This method converts them back to .json so they can be
+        reprocessed on the next run.
+        """
+        for bak_file in self.pipe.input.glob("*.bak"):
+            json_file = bak_file.with_suffix(".json")
+            logging.warning(
+                f"{self.stage_name}: Recovering orphaned token: {bak_file.name} -> {json_file.name}"
+            )
+            bak_file.rename(json_file)
 
     def run_once(self) -> bool:
         """Process a single token if available.
@@ -309,15 +345,21 @@ class Filter:
             return False
 
     def run_forever(self):
-        """Continuously process tokens with polling.
+        """Continuously process tokens with polling and graceful shutdown.
+
+        Processes tokens in a loop until a shutdown signal is received.
+        When shutdown is requested, completes the current token and exits
+        cleanly to avoid leaving tokens in an inconsistent state.
 
         Args:
             poll_interval (int): Seconds to wait between polls when no
                                tokens are available. Defaults to 5.
         """
-        while True:
+        while not self.shutdown_requested:
             if not self.run_once():
                 sleep(self.poll_interval)
+
+        logging.info(f"{self.stage_name}: Exiting gracefully")
 
     def process_token(self, token: Token):
         """Process a token - must be implemented by subclasses.

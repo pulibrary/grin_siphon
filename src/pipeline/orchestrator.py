@@ -102,11 +102,18 @@ class Orchestrator:
         # Track the process for lifecycle management
         self.processes.append((filt["name"], proc))
 
-    def stop_filter_by_name(self, filter_name: str) -> bool:
+    def stop_filter_by_name(self, filter_name: str, timeout: int = 60) -> bool:
         """Stop a specific filter process by name.
+
+        Sends SIGTERM to allow graceful shutdown. If the process doesn't
+        terminate within the timeout period, it will be forcefully killed
+        with SIGKILL.
 
         Args:
             filter_name (str): Name of the filter to stop
+            timeout (int): Seconds to wait for graceful shutdown before
+                          force killing. Defaults to 60 seconds to allow
+                          filters to complete their current token processing.
 
         Returns:
             bool: True if filter was found and stopped, False otherwise
@@ -116,26 +123,35 @@ class Orchestrator:
                 logging.info("Stopping filter: %s", name)
                 proc.terminate()
                 try:
-                    proc.wait(timeout=5)
+                    proc.wait(timeout=timeout)
+                    logging.info("Filter '%s' exited gracefully", name)
                 except subprocess.TimeoutExpired:
+                    logging.warning("Filter '%s' did not exit within %d seconds, force killing", name, timeout)
                     proc.kill()
                 del self.processes[i]
                 return True
         logging.warning("Filter '%s' not found in running processes", filter_name)
         return False
 
-    def stop_filters(self):
+    def stop_filters(self, timeout: int = 60):
         """Stop all running filter processes gracefully.
 
-        Sends SIGTERM to each process and waits up to 5 seconds for graceful
-        shutdown. If a process doesn't terminate, it will be killed with SIGKILL.
+        Sends SIGTERM to each process to trigger graceful shutdown, allowing
+        them to complete their current token processing. If a process doesn't
+        terminate within the timeout, it will be forcefully killed with SIGKILL.
+
+        Args:
+            timeout (int): Seconds to wait for graceful shutdown before
+                          force killing. Defaults to 60 seconds.
         """
         for name, proc in self.processes:
             logging.info("Stopping filter: %s", name)
             proc.terminate()
             try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=timeout)
+                logging.info("Filter '%s' exited gracefully", name)
             except subprocess.TimeoutExpired:
+                logging.warning("Filter '%s' did not exit within %d seconds, force killing", name, timeout)
                 proc.kill()
         self.processes.clear()
 
