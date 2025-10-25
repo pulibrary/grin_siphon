@@ -5,7 +5,7 @@ import signal
 import sys
 import logging
 from pipeline.config_loader import load_config
-from plumbing import Pipeline
+from pipeline.plumbing import Pipeline
 
 config_path: str = os.environ.get("PIPELINE_CONFIG", "config.yml")
 config: dict = load_config(config_path)
@@ -43,6 +43,30 @@ class Orchestrator:
         for filt in config.get("filters", []):
             self.start_filter(filt)
 
+    def start_filter_by_name(self, filter_name: str) -> bool:
+        """Start a specific filter by name from configuration.
+
+        Args:
+            filter_name (str): Name of the filter to start
+
+        Returns:
+            bool: True if filter was found and started, False otherwise
+        """
+        # Check if filter is already running
+        for name, proc in self.processes:
+            if name == filter_name and proc.poll() is None:
+                logging.warning("Filter '%s' is already running", filter_name)
+                return False
+
+        # Find filter in configuration
+        for filt in config.get("filters", []):
+            if filt["name"] == filter_name:
+                self.start_filter(filt)
+                return True
+
+        logging.warning("Filter '%s' not found in configuration", filter_name)
+        return False
+
     def start_filter(self, filt):
         """Start a single filter process.
 
@@ -78,6 +102,28 @@ class Orchestrator:
         # Track the process for lifecycle management
         self.processes.append((filt["name"], proc))
 
+    def stop_filter_by_name(self, filter_name: str) -> bool:
+        """Stop a specific filter process by name.
+
+        Args:
+            filter_name (str): Name of the filter to stop
+
+        Returns:
+            bool: True if filter was found and stopped, False otherwise
+        """
+        for i, (name, proc) in enumerate(self.processes):
+            if name == filter_name:
+                logging.info("Stopping filter: %s", name)
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                del self.processes[i]
+                return True
+        logging.warning("Filter '%s' not found in running processes", filter_name)
+        return False
+
     def stop_filters(self):
         """Stop all running filter processes gracefully.
 
@@ -112,6 +158,17 @@ class Orchestrator:
         config["filters"].append(filt)
         self.start_filter(filt)
 
+    def list_filters(self):
+        """List all available filters from configuration."""
+        print("\nConfigured filters:")
+        for filt in config.get("filters", []):
+            status = "not running"
+            for name, proc in self.processes:
+                if name == filt["name"]:
+                    status = "running" if proc.poll() is None else f"exited ({proc.returncode})"
+                    break
+            print(f"  - {filt['name']}: {status}")
+
     def repl(self):
         """Run the interactive command interface for orchestrator management.
 
@@ -128,13 +185,36 @@ class Orchestrator:
                     break
                 elif cmd == "status":
                     self.status()
+                elif cmd == "list":
+                    self.list_filters()
                 elif cmd == "stop":
                     self.stop_filters()
+                elif cmd.startswith("stop "):
+                    filter_name = cmd[5:].strip()
+                    if self.stop_filter_by_name(filter_name):
+                        print(f"Stopped filter: {filter_name}")
+                    else:
+                        print(f"Failed to stop filter: {filter_name}")
                 elif cmd == "start":
                     self.start_filters()
+                elif cmd.startswith("start "):
+                    filter_name = cmd[6:].strip()
+                    if self.start_filter_by_name(filter_name):
+                        print(f"Started filter: {filter_name}")
+                    else:
+                        print(f"Failed to start filter: {filter_name}")
                 elif cmd == "restart":
                     self.stop_filters()
                     self.start_filters()
+                elif cmd.startswith("restart "):
+                    filter_name = cmd[8:].strip()
+                    if self.stop_filter_by_name(filter_name):
+                        if self.start_filter_by_name(filter_name):
+                            print(f"Restarted filter: {filter_name}")
+                        else:
+                            print(f"Stopped {filter_name} but failed to restart")
+                    else:
+                        print(f"Failed to restart filter: {filter_name}")
                 elif cmd == "reload":
                     self.stop_filters()
                     self.reload_config()
@@ -147,7 +227,19 @@ class Orchestrator:
                         logging.error("Failed to parse new filter: %s", e)
                 elif cmd == "help":
                     print(
-                        "Available commands: status, start, stop, restart, reload, add <yaml>, exit, help"
+                        "Available commands:\n"
+                        "  status              - Show status of running filters\n"
+                        "  list                - List all configured filters\n"
+                        "  start               - Start all filters\n"
+                        "  start <name>        - Start a specific filter\n"
+                        "  stop                - Stop all filters\n"
+                        "  stop <name>         - Stop a specific filter\n"
+                        "  restart             - Restart all filters\n"
+                        "  restart <name>      - Restart a specific filter\n"
+                        "  reload              - Reload config and restart all filters\n"
+                        "  add <yaml>          - Add and start a new filter\n"
+                        "  exit                - Exit orchestrator\n"
+                        "  help                - Show this help message"
                     )
                 else:
                     print(f"Unknown command: {cmd}")
