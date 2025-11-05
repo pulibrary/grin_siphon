@@ -4,6 +4,7 @@
 # be used to upload Google Books objects (tarballs) to a storage
 # system.
 
+import logging
 from pathlib import Path
 from collections import namedtuple
 import boto3
@@ -48,11 +49,14 @@ class S3Client(ObjectStore):
         if object_name is None:
             object_name = Path(file_path).stem
         try:
+            logging.debug(f"starting to upload {file_path} to {self.bucket_name}")
             self.client.upload_file(file_path, self.bucket_name, object_name)
+            logging.debug(f"finished uploading {file_path} to {self.bucket_name}")
             return True
 
         except self.client.exceptions.NoCredentialsError as e:
-            print(f"AWS credentials not available: {e}")
+            logging.error(f"AWS credentials not available: {e}")
+            # print(f"AWS credentials not available: {e}")
             return False
 
     def store_object(self, barcode, overwrite=False) -> bool:
@@ -60,9 +64,11 @@ class S3Client(ObjectStore):
         file_path = self.cache / Path(barcode).with_suffix(".tgz")
         if file_path.is_file():
             if self.object_exists(barcode):
-                print(f"object {barcode} has already been stored.")
+                logging.info(f"object {barcode} has already been stored.")
+                # print(f"object {barcode} has already been stored.")
                 if overwrite is True:
-                    print(f"overwriting {barcode}")
+                    logging.info(f"overwriting {barcode}")
+                    # print(f"overwriting {barcode}")
                     result = self.store_file(file_path, barcode)
             else:
                 result = self.store_file(file_path, barcode)

@@ -1,11 +1,11 @@
 import logging
+import os
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
 
 from clients import GrinClient
 from pipeline.plumbing import Filter, Pipe, Token
-
 
 class Requester(Filter):
     """
@@ -67,9 +67,21 @@ class Requester(Filter):
 
 
 if __name__ == "__main__":
+    from pipeline.config_loader import load_config
+    from pipeline.logging_config import configure_logging
     import argparse
 
-    logger: logging.Logger = logging.getLogger(__name__)
+
+    if "PIPELINE_CONFIG" not in os.environ:
+        print("Please set the PIPELINE_CONFIG environment variable.")
+        sys.exit(1)
+
+    config_path: str = os.environ.get("PIPELINE_CONFIG", "config.yml")
+    config: dict = load_config(config_path)
+        
+    # Set up logging
+    log_level = getattr(logging, config.get("global", {}).get("log_level", "INFO").upper())
+    configure_logging(log_level)
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
@@ -79,5 +91,5 @@ if __name__ == "__main__":
     pipe: Pipe = Pipe(Path(args.input), Path(args.output))
 
     requester: Requester = Requester(pipe)
-    logger.info("starting requester")
+    logging.info("starting requester")
     requester.run_forever()

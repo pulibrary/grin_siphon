@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from tabulate import tabulate
-
+from pipeline.logging_config import configure_logging
 from pipeline.book_ledger import BookLedger
 from pipeline.config_loader import load_config
 from pipeline.plumbing import Pipeline
@@ -198,8 +198,7 @@ if __name__ == "__main__":
 
     # Set up logging
     log_level = getattr(logging, config.get("global", {}).get("log_level", "INFO").upper())
-
-    logging.basicConfig(level=log_level)
+    configure_logging(log_level)
 
     manager = Manager(config)
     manager.run()

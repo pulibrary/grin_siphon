@@ -7,8 +7,6 @@ from pathlib import Path
 from clients import S3Client
 from pipeline.plumbing import Filter, Pipe, Token
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
 
 class Uploader(Filter):
     """
@@ -99,7 +97,7 @@ class AWSUploader(Uploader):
                 token.put_prop("when_uploaded", str(datetime.now(timezone.utc)))
                 successflg = True
             else:
-                logging.error(f"Object not stored: {barcode}")
+                logging.error(f"{self.stage_name} did not store object {barcode}: {status}")
                 self.log_to_token(token, "ERROR", "Object not stored")
                 token.put_prop("upload_status", "fail")
 
@@ -109,6 +107,10 @@ class AWSUploader(Uploader):
 
 
 if __name__ == "__main__":
+    from pipeline.config_loader import load_config
+    from pipeline.logging_config import configure_logging
+    import argparse
+
     if "OBJECT_STORE" not in os.environ:
         print("Please set the OBJECT_STORE environment variable.")
         sys.exit(1)
@@ -117,7 +119,18 @@ if __name__ == "__main__":
         print("Please set the LOCAL_DIR environment variable (probably the processing bucket).")
         sys.exit(1)
 
-    import argparse
+        if "PIPELINE_CONFIG" not in os.environ:
+        print("Please set the PIPELINE_CONFIG environment variable.")
+        sys.exit(1)
+
+
+    config_path: str = os.environ.get("PIPELINE_CONFIG", "config.yml")
+    config: dict = load_config(config_path)
+        
+    # Set up logging
+    log_level = getattr(logging, config.get("global", {}).get("log_level", "INFO").upper())
+    configure_logging(log_level)
+
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
