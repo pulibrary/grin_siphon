@@ -1,4 +1,4 @@
-GRIN Siphon is a robust, highly configurable tool for academic libraries
+GRIN Siphon is a highly configurable tool for academic libraries
 that have partnered with Google Books and wish to work with their
 contributions to Google\'s digital archive via Google\'s GRIN interface.
 Grin Siphon\'s design implements a loosely coupled, Kanban-style
