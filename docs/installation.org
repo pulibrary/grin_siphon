@@ -109,14 +109,32 @@ sourced by the shell.
 
 *** Step 3: Run the credential helper
 
+The credential helper runs an OAuth2 loopback server on port 53682. It
+does *not* open a browser on the server — it prints a URL for you to
+open on your local machine. Google redirects back to =localhost:53682=
+after authorization, so that port must be reachable from your local
+browser.
+
+*If you are running on a headless remote server*, forward the port
+before running the script. In a separate local terminal:
+
+#+begin_src shell
+ssh -L 53682:localhost:53682 user@your-server
+#+end_src
+
+Then, back on the server, run:
+
 #+begin_src shell
 python src/clients/create_creds.py
 #+end_src
 
-This starts a local OAuth2 server on port 53682 and prints an
-authorization URL. Open that URL in your browser, authorize the
-application, and the token will be written to the path specified in
-=GOOGLE_TOKEN_FILE=.
+The script prints a URL. Open it in your local browser, authorize the
+application, and Google will redirect to =localhost:53682=. The tunnel
+carries that callback to the server, which writes the token to the path
+specified in =GOOGLE_TOKEN_FILE=.
+
+*If you are running locally* (not over SSH), no tunnel is needed — just
+run the script and open the URL that is printed.
 
 The token is refreshed automatically by the pipeline when it expires.
 You only need to run this script once per machine (or after revoking
@@ -167,6 +185,5 @@ error, double-check your AWS credentials and bucket name.
 
 ** Next Steps
 
+- See [[file:operations.org][Operations Guide]] to generate your ledger, fill the token bag, and start the pipeline.
 - See [[file:overview.org][Architecture Overview]] for a description of the pipeline design.
-- Prepare your ledger CSV and stage your first tokens to begin processing.
-- Run =pdm orchestrator= to start the pipeline.

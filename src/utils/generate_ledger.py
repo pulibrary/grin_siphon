@@ -59,3 +59,21 @@ class LedgerGenerator:
             writer = DictWriter(f, fieldnames)
             writer.writeheader()
             writer.writerows(self.ledger)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate a book ledger from GRIN")
+    parser.add_argument("--ledger_file", required=True, help="Path to write the ledger CSV")
+    parser.add_argument(
+        "--sync",
+        action="store_true",
+        help="Pre-populate completed status for books already in S3",
+    )
+    args = parser.parse_args()
+
+    gen = LedgerGenerator()
+    if args.sync:
+        gen.synchronize_ledger()
+    gen.dump_ledger(Path(args.ledger_file))
