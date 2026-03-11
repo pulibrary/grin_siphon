@@ -74,7 +74,21 @@ class Orchestrator:
             filt (dict): Filter configuration containing script path, arguments,
                         and pipe configuration.
         """
+        global_cfg = config.get("global", {})
         extra_env = {}
+
+        # Inject global config values as environment variables for filter subprocesses
+        if val := global_cfg.get("processing_bucket"):
+            extra_env["DOWNLOAD_BUCKET"] = val
+            extra_env["LOCAL_DIR"] = val
+        if val := global_cfg.get("finished_bucket"):
+            extra_env["FINISHED_BUCKET"] = val
+        if val := global_cfg.get("object_store"):
+            extra_env["OBJECT_STORE"] = val
+
+        # Inject filter-specific config values
+        if val := filt.get("decryption_passphrase"):
+            extra_env["DECRYPTION_PASSPHRASE"] = val
 
         # Resolve bucket names to actual directory paths
         in_bucket = str(self.pipeline.bucket(filt["pipe"]["in"]))
