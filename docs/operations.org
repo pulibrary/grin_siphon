@@ -1,0 +1,136 @@
+* Operating GRIN Siphon
+
+This guide covers initialization and the ongoing run loop: generating a
+ledger, filling the token bag, staging tokens into the pipeline, and
+starting the orchestrator. The [[file:installation.org][Installation Guide]] covers prerequisites
+and credential setup.
+
+The overall flow is: *ledger → token bag → pipeline*. The Manager REPL
+is the control surface for ledger and bag operations; the Orchestrator
+runs the filter subprocesses that move tokens through the pipeline.
+
+** Generate the Ledger
+
+The ledger is a CSV file that tracks every book in GRIN and its
+processing status. Generate it once before the first run, then keep it
+updated with reconciliation commands as the pipeline runs.
+
+*** Fresh start (no books in S3 yet)
+
+=LedgerGenerator= fetches all books from GRIN and writes a CSV with
+empty status fields.
+
+#+begin_src shell
+pdm run python src/utils/generate_ledger.py --ledger_file /var/tmp/grin/ledger.csv
+#+end_src
+
+*** Migrating (S3 already contains processed books)
+
+Pass =--sync= to check each book against S3 and pre-populate
+=status=completed= for books already uploaded, preventing them from
+being reprocessed.
+
+#+begin_src shell
+pdm run python src/utils/generate_ledger.py \
+  --ledger_file /var/tmp/grin/ledger.csv \
+  --sync
+#+end_src
+
+*** Ledger CSV format
+
+The ledger file has four columns:
+
+#+begin_example
+barcode,date_chosen,date_completed,status
+32101078166681,,,
+32101078165139,2026-01-10T14:00:00+00:00,2026-01-11T09:30:00+00:00,completed
+#+end_example
+
+- =barcode= — the book identifier used throughout the pipeline
+- =date_chosen= — timestamp when the book was selected for processing
+- =date_completed= — timestamp when the book was confirmed uploaded to S3
+- =status= — empty (unprocessed), =chosen=, or =completed=
+
+** Reconcile an Existing Ledger with S3
+
+Use this when the ledger may have drifted from S3 state — for example,
+after running the pipeline on another machine or if S3 was populated
+out-of-band.
+
+=AwsSynchronizer= compares the ledger against S3 and corrects
+discrepancies in both directions:
+
+- Books in S3 but not marked =chosen= → marked =completed=
+- Books marked =chosen= but not in S3 → re-queued for processing
+
+#+begin_src shell
+pdm run python src/utils/sync_with_aws.py
+#+end_src
+
+To use a non-default config file:
+
+#+begin_src shell
+pdm run python src/utils/sync_with_aws.py --config /path/to/config.yml
+#+end_src
+
+** Fill the Token Bag and Stage Tokens
+
+The Manager provides an interactive REPL for bag and ledger operations.
+Start it with:
+
+#+begin_src shell
+pdm run python src/pipeline/manager.py
+#+end_src
+
+Available commands:
+
+| Command            | Description                                                                         |
+|--------------------|-------------------------------------------------------------------------------------|
+| =fill token bag=   | Prompts for how many books to select; marks them =chosen=; writes tokens to the bag |
+| =token bag status= | Show the current number of tokens in the bag                                        |
+| =ledger status=    | Show counts of chosen, completed, and unprocessed books                             |
+| =stage=            | Move all bag tokens into =pipeline/start/=; empties the bag                         |
+| =pipeline status=  | Snapshot of token counts in every pipeline bucket                                   |
+| =synchronize=      | Sync GRIN converted-queue with the pipeline =converted= bucket (bypasses =start=    |
+|                    | through =requested= for books already converted by GRIN)                            |
+| =status=           | Show status of GRIN queues                                                          |
+| =help=             | List all commands                                                                   |
+| =exit=             | Exit the Manager                                                                    |
+
+** Start the Pipeline
+
+Once tokens are staged, launch the orchestrator:
+
+#+begin_src shell
+pdm orchestrator
+#+end_src
+
+This starts all filter subprocesses. Tokens flow through the pipeline
+buckets in this order:
+
+#+begin_example
+start → requested → converted → downloaded → decrypted → stored → done
+#+end_example
+
+Each filter watches its input bucket, processes tokens, and moves them
+to the next bucket. The pipeline can be stopped and restarted at any
+time — it picks up where it left off by examining bucket contents.
+
+** Typical Workflow
+
+*** Day zero (first run)
+
+1. Generate the ledger (with =synchronize_ledger()= if S3 is not empty).
+2. Start the Manager REPL: =pdm run python src/pipeline/manager.py=
+3. Run =fill token bag= and choose how many books to process.
+4. Run =stage= to move tokens into =pipeline/start/=.
+5. Exit the Manager.
+6. Run =pdm orchestrator= to start processing.
+
+*** Ongoing (refilling the pipeline)
+
+1. Start the Manager REPL.
+2. Run =ledger status= to see how many books remain unprocessed.
+3. Run =fill token bag= to select more books.
+4. Run =stage= to push them into the pipeline.
+5. Exit — the already-running orchestrator picks them up automatically.

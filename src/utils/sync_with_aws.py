@@ -42,13 +42,18 @@ class AwsSynchronizer:
 
 if __name__ == "__main__":
     import argparse
+    from pipeline.config_loader import load_config
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--ledger_file", required=True)
-    parser.add_argument("--token_bag_dir", required=True)
+    parser = argparse.ArgumentParser(description="Reconcile ledger with S3")
+    parser.add_argument(
+        "--config",
+        default=os.environ.get("PIPELINE_CONFIG", "config.yml"),
+        help="Path to config YAML (default: $PIPELINE_CONFIG or config.yml)",
+    )
     args = parser.parse_args()
 
-    ledger = BookLedger(Path(args.ledger_file))
-    bag = TokenBag(Path(args.token_bag_dir))
+    config = load_config(args.config)
+    ledger = BookLedger(Path(config["global"]["ledger_file"]))
+    bag = TokenBag(Path(config["global"]["token_bag"]))
     synchronizer = AwsSynchronizer(ledger, bag)
     synchronizer.sync()
