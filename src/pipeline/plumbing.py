@@ -9,6 +9,15 @@ from typing import Optional
 logger: logging.Logger = logging.getLogger(__name__)
 
 
+class RetryableError(Exception):
+    """Raised by filters to signal a transient failure.
+
+    When run_once() catches this, it puts the token back into the input
+    bucket (as .json) so it will be retried on the next poll cycle,
+    rather than marking it as a permanent error (.err).
+    """
+
+
 class Token:
     """
     Represents a processing unit with barcode and metadata.
@@ -318,14 +327,13 @@ class Filter:
             # logging.info("No tokens available")
             return False
 
-        if self.validate_token(token) is False:
-            self.log_to_token(token, "ERROR", "Token did not validate")
-            logging.error("token did not validate")
-            self.pipe.put_token(errorFlg=True)
-
-            return False
-
         try:
+            if self.validate_token(token) is False:
+                self.log_to_token(token, "ERROR", "Token did not validate")
+                logging.error("token did not validate")
+                self.pipe.put_token(errorFlg=True)
+                return False
+
             processed: bool = self.process_token(token)
             if processed:
                 logging.debug(f"Processed token: {token.name}")
@@ -337,6 +345,12 @@ class Filter:
                 self.pipe.put_token(errorFlg=True)
 
             return True
+
+        except RetryableError as e:
+            self.log_to_token(token, "WARNING", f"Transient error, will retry: {str(e)}")
+            logging.warning(f"{self.stage_name}: transient error for {token.name}, will retry: {str(e)}")
+            self.pipe.put_token_back()
+            return False
 
         except Exception as e:
             self.log_to_token(token, "ERROR", f"in {self.stage_name}: {str(e)}")

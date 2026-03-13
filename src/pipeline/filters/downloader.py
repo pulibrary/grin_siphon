@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 
 from clients import GrinClient
-from pipeline.plumbing import Filter, Pipe, Token
+from pipeline.plumbing import Filter, Pipe, RetryableError, Token
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
@@ -73,7 +73,10 @@ class Downloader(Filter):
         """Check if there's enough disk space to download `url` into `target_dir`."""
         dest = token.content["processing_bucket"]
         barcode = token.content["barcode"]
-        file_size = GrinClient().file_size(barcode)
+        try:
+            file_size = GrinClient().file_size(barcode)
+        except httpx.TransportError as e:
+            raise RetryableError(str(e)) from e
 
         return free_space(dest) > file_size * self.disk_threshold
 
@@ -107,14 +110,16 @@ class Downloader(Filter):
         Returns:
             bool: True if download completed successfully
         """
-        completed: bool = False
-        barcode = token.content["barcode"]
-        dest = str(Path(token.content["processing_bucket"]))
-        grin_client = GrinClient()
-        grin_client.download_book(barcode, dest)
+        try:
+            barcode = token.content["barcode"]
+            dest = str(Path(token.content["processing_bucket"]))
+            grin_client = GrinClient()
+            grin_client.download_book(barcode, dest)
+        except httpx.TransportError as e:
+            raise RetryableError(str(e)) from e
+
         token.put_prop("when_downloaded", str(datetime.now(timezone.utc)))
-        completed = True
-        return completed
+        return True
 
 
 if __name__ == "__main__":
