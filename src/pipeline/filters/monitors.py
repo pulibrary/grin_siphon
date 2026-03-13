@@ -82,10 +82,12 @@ class RequestMonitor(Monitor):
         super().__init__(pipe, poll_interval)
         self._converted_barcodes = None
         self._in_process_barcodes = None
+        self._failed_info = None
 
     def set_up_run(self):
         self._converted_barcodes = None
         self._in_process_barcodes = None
+        self._failed_info = None
 
     @property
     def converted_barcodes(self):
@@ -101,6 +103,17 @@ class RequestMonitor(Monitor):
             self._in_process_barcodes = [rec["barcode"] for rec in client.in_process_books]
         return self._in_process_barcodes
 
+    @property
+    def failed_info(self):
+        """Dict mapping barcode -> convert_failed_info for all books in GRIN's failed queue."""
+        if self._failed_info is None:
+            client = GrinClient()
+            self._failed_info = {
+                rec["barcode"]: rec["convert_failed_info"]
+                for rec in client.failed_books
+            }
+        return self._failed_info
+
     def is_in_process(self, token: Token) -> bool:
         return token.get_prop("barcode") in self.in_process_barcodes
 
@@ -108,16 +121,9 @@ class RequestMonitor(Monitor):
         return token.get_prop("barcode") in self.converted_barcodes
 
     def run_once(self) -> bool:
-        # First, set up the run
         self.set_up_run()
 
-        # Then, get a list of all the tokens in the input pipe.
         barcodes = [tok.name for tok in self.pipe.list_input_tokens()]
-
-        # Iterate over the list of barcodes. If the barcode is in the
-        # in_process list from GRIN, leave it where it is.  If it is
-        # in the converted list from GRIN, move it to the converted_bucket.
-        # If it is in neither, raise an error.
 
         for barcode in barcodes:
             token: Token | None = self.pipe.take_token(barcode)
@@ -129,11 +135,20 @@ class RequestMonitor(Monitor):
                     self.log_to_token(token, "INFO", "Book has been converted")
                     self.pipe.put_token()
 
+                elif barcode in self.failed_info:
+                    info = self.failed_info[barcode]
+                    if "Temporary" in info:
+                        self.log_to_token(token, "WARNING", f"Temporary GRIN conversion failure, will retry: {info}")
+                        self.pipe.put_token_back()
+                    else:
+                        self.log_to_token(token, "ERROR", f"GRIN conversion failed: {info}")
+                        self.pipe.put_token(errorFlg=True)
+
                 else:
                     self.log_to_token(
                         token,
                         "ERROR",
-                        "Book is in neither in_proces or converted queues",
+                        "Book is in neither in_process nor converted queues",
                     )
                     self.pipe.put_token(errorFlg=True)
 
