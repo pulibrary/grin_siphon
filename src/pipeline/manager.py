@@ -90,6 +90,10 @@ class Manager:
                 "help": "record error tokens as failed in ledger and remove them",
                 "fn": self._tidy_errors_command,
             },
+            "tidy done": {
+                "help": "mark completed tokens in done bucket as completed in ledger and remove them",
+                "fn": self._tidy_done_command,
+            },
             "help": {"help": "show commands", "fn": self._help_command},
         }
 
@@ -223,6 +227,30 @@ class Manager:
             print(f"Marked {count} book(s) as failed and removed error tokens.")
         else:
             print("No error tokens found.")
+        return False
+
+    def _tidy_done_command(self):
+        from pipeline.plumbing import load_token
+
+        done_path = self.pipeline.buckets.get("done")
+        if done_path is None:
+            print("No 'done' bucket configured.")
+            return False
+        count = 0
+        for token_file in sorted(done_path.glob("*.json")):
+            token = load_token(token_file)
+            barcode = token.name
+            try:
+                self.ledger.mark_book_completed(barcode)
+                token_file.unlink()
+                count += 1
+            except ValueError:
+                print(f"  Warning: {barcode} not found in ledger, skipping")
+        if count:
+            self.ledger.write_ledger()
+            print(f"Marked {count} book(s) as completed and removed done tokens.")
+        else:
+            print("No done tokens found.")
         return False
 
     def run(self):
