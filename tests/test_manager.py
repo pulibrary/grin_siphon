@@ -50,8 +50,8 @@ def test_manager(shared_datadir, test_config):
     manager = Manager(test_config)
     pipeline = Pipeline(test_config)
 
-    snapshot = manager.pipeline_status
-    assert len(manager.pipeline_status["start"]["waiting_tokens"]) == 0
+    assert isinstance(manager.pipeline_status, str)
+    assert len(pipeline.snapshot["start"]["waiting_tokens"]) == 0
     assert len(list(pipeline.bucket("start").glob("*.json"))) == 0
 
     status = manager.ledger_status
@@ -71,7 +71,7 @@ def test_manager(shared_datadir, test_config):
     manager.stage()
 
     assert manager.token_bag_status == 0
-    waiting_in_start = manager.pipeline_status["start"]["waiting_tokens"]
+    waiting_in_start = pipeline.snapshot["start"]["waiting_tokens"]
     assert len(waiting_in_start) == 5
 
     assert all(

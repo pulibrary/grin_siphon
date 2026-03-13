@@ -103,7 +103,21 @@ class Manager:
 
     @property
     def pipeline_status(self):
-        return self.pipeline.snapshot
+        snapshot = self.pipeline.snapshot
+        rows = []
+        for name, info in snapshot.items():
+            rows.append([
+                name,
+                len(info["waiting_tokens"]),
+                len(info["in_process_tokens"]),
+                len(info["errored_tokens"]),
+            ])
+        totals = ["TOTAL", sum(r[1] for r in rows),
+                           sum(r[2] for r in rows),
+                           sum(r[3] for r in rows)]
+        return tabulate(rows + [totals],
+                        headers=["bucket", "waiting", "in process", "errors"],
+                        colalign=("left", "right", "right", "right"))
 
     @property
     def ledger_status(self):
