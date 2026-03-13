@@ -236,19 +236,21 @@ class Manager:
         if done_path is None:
             print("No 'done' bucket configured.")
             return False
+        archive_path = Path(self.config["global"]["token_archive"])
+        archive_path.mkdir(parents=True, exist_ok=True)
         count = 0
         for token_file in sorted(done_path.glob("*.json")):
             token = load_token(token_file)
             barcode = token.name
             try:
                 self.ledger.mark_book_completed(barcode)
-                token_file.unlink()
+                token_file.rename(archive_path / token_file.name)
                 count += 1
             except ValueError:
                 print(f"  Warning: {barcode} not found in ledger, skipping")
         if count:
             self.ledger.write_ledger()
-            print(f"Marked {count} book(s) as completed and removed done tokens.")
+            print(f"Marked {count} book(s) as completed and archived done tokens.")
         else:
             print("No done tokens found.")
         return False

@@ -7,6 +7,7 @@ global:
   finished_bucket: /var/tmp/grin/finished
   ledger_file: /var/tmp/grin/ledger.csv
   token_bag: /var/tmp/grin/token_bag
+  token_archive: /var/tmp/grin/token_archive
 
 buckets:
   - name: start
