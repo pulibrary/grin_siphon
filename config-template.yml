@@ -1,6 +1,6 @@
 global:
   log_level: INFO
-  poll_interval: 5
+  poll_interval: 60
   object_service: aws
   object_store: google-books-dev
   processing_bucket: /var/tmp/grin/processing
@@ -32,6 +32,13 @@ filters:
     pipe:
         in: start
         out: requested
+  - name: request_monitor
+    class: RequestMonitor
+    script: src/pipeline/filters/monitors.py
+    poll_interval: 60
+    pipe:
+        in: requested
+        out: converted
   - name: downloader
     class: Downloader
     script: src/pipeline/filters/downloader.py

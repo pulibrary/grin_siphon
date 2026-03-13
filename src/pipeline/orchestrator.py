@@ -90,6 +90,10 @@ class Orchestrator:
         if val := filt.get("decryption_passphrase"):
             extra_env["DECRYPTION_PASSPHRASE"] = val
 
+        # poll_interval: per-filter override takes precedence over global
+        poll_interval = filt.get("poll_interval", global_cfg.get("poll_interval", 60))
+        extra_env["POLL_INTERVAL"] = str(poll_interval)
+
         # Resolve bucket names to actual directory paths
         in_bucket = str(self.pipeline.bucket(filt["pipe"]["in"]))
         out_bucket = str(self.pipeline.bucket(filt["pipe"]["out"]))
