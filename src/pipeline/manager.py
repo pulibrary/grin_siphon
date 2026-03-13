@@ -82,6 +82,14 @@ class Manager:
                 "help": "get status of GRIN queues",
                 "fn": self._status_command,
             },
+            "show errors": {
+                "help": "list all error tokens with failure reason",
+                "fn": self._show_errors_command,
+            },
+            "tidy errors": {
+                "help": "record error tokens as failed in ledger and remove them",
+                "fn": self._tidy_errors_command,
+            },
             "help": {"help": "show commands", "fn": self._help_command},
         }
 
@@ -94,6 +102,7 @@ class Manager:
         return {
             "chosen": len(self.ledger.all_chosen_books),
             "completed": len(self.ledger.all_completed_books),
+            "failed": len(self.ledger.all_failed_books),
             "unprocessed": len(self.ledger.all_unprocessed_books),
         }
 
@@ -170,6 +179,50 @@ class Manager:
         if report is not None:
             print(tabulate(report))
 
+        return False
+
+    def _last_error_message(self, token) -> str | None:
+        log = token.content.get("log", [])
+        for entry in reversed(log):
+            if entry.get("level") in ("ERROR", "WARNING"):
+                return entry.get("message")
+        return None
+
+    def _show_errors_command(self):
+        from pipeline.plumbing import load_token
+
+        rows = []
+        for name, path in self.pipeline.buckets.items():
+            for err_file in sorted(path.glob("*.err")):
+                token = load_token(err_file)
+                reason = self._last_error_message(token) or "unknown"
+                rows.append([token.name, name, reason])
+        if rows:
+            print(tabulate(rows, headers=["barcode", "bucket", "reason"]))
+        else:
+            print("No error tokens found.")
+        return False
+
+    def _tidy_errors_command(self):
+        from pipeline.plumbing import load_token
+
+        count = 0
+        for name, path in self.pipeline.buckets.items():
+            for err_file in sorted(path.glob("*.err")):
+                token = load_token(err_file)
+                barcode = token.name
+                reason = self._last_error_message(token)
+                try:
+                    self.ledger.mark_book_failed(barcode, reason)
+                    err_file.unlink()
+                    count += 1
+                except ValueError:
+                    print(f"  Warning: {barcode} not found in ledger, skipping")
+        if count:
+            self.ledger.write_ledger()
+            print(f"Marked {count} book(s) as failed and removed error tokens.")
+        else:
+            print("No error tokens found.")
         return False
 
     def run(self):

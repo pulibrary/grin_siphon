@@ -10,6 +10,7 @@ from pathlib import Path
 class BookStatus(StrEnum):
     CHOSEN = "chosen"
     COMPLETED = "completed"
+    FAILED = "failed"
 
 
 @dataclass
@@ -25,20 +26,28 @@ class Book:
         date_chosen (str | None): Timestamp when book was selected for processing
         date_completed (str | None): Timestamp when processing was completed
         status (str | None): Current processing status ('chosen', 'completed', etc.)
+        failure_reason (str | None): Reason for failure if status is 'failed'
     """
 
     barcode: str
     date_chosen: str | None
     date_completed: str | None
     status: str | None
+    failure_reason: str | None
 
     def __init__(
-        self, barcode: str, date_chosen: str, date_completed: str, status: str | None
+        self,
+        barcode: str,
+        date_chosen: str,
+        date_completed: str,
+        status: str | None,
+        failure_reason: str | None = None,
     ) -> None:
         self.barcode = barcode
         self.date_chosen = None
         self.date_completed = None
         self.status = None
+        self.failure_reason = None
 
         if date_chosen:
             self.date_chosen = date_chosen
@@ -46,6 +55,8 @@ class Book:
             self.date_completed = date_completed
         if status:
             self.status = status
+        if failure_reason:
+            self.failure_reason = failure_reason
 
 
 class BookLedger:
@@ -55,7 +66,9 @@ class BookLedger:
         with self.csv_file.open("r", encoding="utf-8") as f:
             reader: csv.DictReader = csv.DictReader(f)
 
-            self._fieldnames = reader.fieldnames
+            self._fieldnames = list(reader.fieldnames)
+            if "failure_reason" not in self._fieldnames:
+                self._fieldnames.append("failure_reason")
 
             for row in reader:
                 barcode = row.get("barcode")
@@ -111,6 +124,19 @@ class BookLedger:
     @property
     def all_completed_books(self) -> list[Book]:
         return [book for _, book in self.books.items() if book.status == BookStatus.COMPLETED]
+
+    def mark_book_failed(self, barcode: str, reason: str | None = None) -> Book:
+        entry: Book | None = self.entry(barcode)
+        if entry:
+            entry.status = BookStatus.FAILED
+            entry.failure_reason = reason
+            return entry
+        else:
+            raise ValueError(f"book {barcode} not in ledger")
+
+    @property
+    def all_failed_books(self) -> list[Book]:
+        return [book for _, book in self.books.items() if book.status == BookStatus.FAILED]
 
     @property
     def all_unprocessed_books(self) -> list[Book]:
