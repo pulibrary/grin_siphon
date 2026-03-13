@@ -94,6 +94,10 @@ class Manager:
                 "help": "mark completed tokens in done bucket as completed in ledger and remove them",
                 "fn": self._tidy_done_command,
             },
+            "tidy": {
+                "help": "run tidy errors and tidy done",
+                "fn": lambda: self._tidy_errors_command() or self._tidy_done_command(),
+            },
             "help": {"help": "show commands", "fn": self._help_command},
         }
 
