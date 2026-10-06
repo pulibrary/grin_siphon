@@ -94,8 +94,21 @@ Available commands:
 | =synchronize=      | Sync GRIN converted-queue with the pipeline =converted= bucket (bypasses =start=    |
 |                    | through =requested= for books already converted by GRIN)                            |
 | =status=           | Show status of GRIN queues                                                          |
+| =show errors=      | List error tokens with bucket and failure reason                                    |
+| =tidy=             | Record errors as failed and done tokens as completed in the ledger                  |
+| =report progress=  | Print a Markdown progress report (counts, pages, bytes)                             |
+| =report count=     | Progress report by barcode count only                                               |
+| =report volume=    | Progress report by pages and bytes only                                             |
+| =save report=      | Write the report to =progress-YYYY-MM-DD.md= in =global.report_dir= (default: cwd)  |
 | =help=             | List all commands                                                                   |
 | =exit=             | Exit the Manager                                                                    |
+
+*** Progress reports
+
+"Transferred" means the object is in S3; bytes are the S3 object sizes.
+Page counts are recorded by the Decryptor in each token (=page_count=), so
+books transferred before that change appear in the report as lacking a page
+count and the page total is a lower bound.
 
 ** Start the Pipeline
 

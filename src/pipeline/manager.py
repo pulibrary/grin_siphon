@@ -2,6 +2,7 @@ import logging
 import os
 import signal
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from tabulate import tabulate
@@ -13,6 +14,7 @@ from pipeline.secretary import Secretary
 from pipeline.stager import Stager
 from pipeline.synchronizer import Synchronizer
 from pipeline.token_bag import TokenBag
+from reporters.progress_reporter import ProgressReport
 from reporters.reporter import StatusReporter
 
 
@@ -97,6 +99,22 @@ class Manager:
             "tidy": {
                 "help": "run tidy errors and tidy done",
                 "fn": lambda: self._tidy_errors_command() or self._tidy_done_command(),
+            },
+            "report progress": {
+                "help": "print Markdown progress report (counts and volume)",
+                "fn": lambda: self._report_command(),
+            },
+            "report count": {
+                "help": "print Markdown progress report by barcode count",
+                "fn": lambda: self._report_command("count"),
+            },
+            "report volume": {
+                "help": "print Markdown progress report by pages and bytes",
+                "fn": lambda: self._report_command("volume"),
+            },
+            "save report": {
+                "help": "write the Markdown progress report to a dated file",
+                "fn": self._save_report_command,
             },
             "help": {"help": "show commands", "fn": self._help_command},
         }
@@ -201,6 +219,21 @@ class Manager:
         if report is not None:
             print(tabulate(report))
 
+        return False
+
+    def _progress_report(self, section: str | None = None) -> str:
+        return ProgressReport(self.config, self.ledger, self.pipeline).report(section=section)
+
+    def _report_command(self, section: str | None = None):
+        print(self._progress_report(section))
+        return False
+
+    def _save_report_command(self):
+        report_dir = Path(self.config["global"].get("report_dir", "."))
+        report_dir.mkdir(parents=True, exist_ok=True)
+        path = report_dir / f"progress-{datetime.now():%Y-%m-%d}.md"
+        path.write_text(self._progress_report())
+        print(f"Wrote {path}")
         return False
 
     def _last_error_message(self, token) -> str | None:

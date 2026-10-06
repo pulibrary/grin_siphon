@@ -8,6 +8,7 @@ global:
   ledger_file: /var/tmp/grin/ledger.csv
   token_bag: /var/tmp/grin/token_bag
   token_archive: /var/tmp/grin/token_archive
+  report_dir: /var/tmp/grin/reports
 
 buckets:
   - name: start
