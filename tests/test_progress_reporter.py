@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from pipeline.book_ledger import BookLedger
-from pipeline.plumbing import Pipeline, Token, dump_token
+from pipeline.plumbing import Pipeline, Token, dump_token, load_token
 from reporters.progress_reporter import ProgressReport, human_bytes
 
 LEDGER = """barcode,date_chosen,date_completed,status
@@ -103,3 +103,20 @@ def test_list_sizes_reports_progress():
     seen = []
     assert client.list_sizes(seen.append) == {"a": 1, "b": 2, "c": 3}
     assert seen == [2, 3, 3]
+
+
+def test_archive_scan_is_cached_and_incremental(setup):
+    from unittest.mock import patch
+
+    config, ledger, pipeline, _, archive = setup
+    dump_token(Token({"barcode": "b1", "page_count": 7}), archive / "b1.json")
+    dump_token(Token({"barcode": "b2"}), archive / "b2.json")
+    report = ProgressReport(config, ledger, pipeline, lambda: {})
+
+    assert report._page_counts() == {"b1": 7}
+    assert (archive / "page_counts.cache").exists()
+
+    dump_token(Token({"barcode": "b3", "page_count": 5}), archive / "b3.json")
+    with patch("reporters.progress_reporter.load_token", wraps=load_token) as spy:
+        assert report._page_counts() == {"b1": 7, "b3": 5}
+    assert spy.call_count == 1  # only the new file was parsed

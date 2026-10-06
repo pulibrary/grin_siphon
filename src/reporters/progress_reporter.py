@@ -1,3 +1,5 @@
+import json
+import os
 import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -9,6 +11,9 @@ from clients import S3Client
 from pipeline.book_ledger import BookLedger
 from pipeline.plumbing import Pipeline, load_token
 from reporters.reporter import Reporter
+
+
+CACHE_NAME = "page_counts.cache"
 
 
 def human_bytes(n: int) -> str:
@@ -67,20 +72,56 @@ class ProgressReport(Reporter):
             for name in info["errored_tokens"]
         }
 
+    def _scan_archive(self, archive: Path) -> dict[str, int]:
+        """Page counts for archived tokens, parsing only files not seen before.
+
+        Archived tokens never change, so results (including "no page_count",
+        stored as null) are cached in ``<archive>/page_counts.cache``, keyed by
+        file name. Only new files are parsed on later runs.
+        """
+        cache_file = archive / CACHE_NAME
+        cache: dict[str, int | None] = {}
+        try:
+            cache = json.loads(cache_file.read_text())
+        except (OSError, ValueError):
+            pass
+
+        def save() -> None:
+            tmp = cache_file.with_name(CACHE_NAME + ".tmp")
+            tmp.write_text(json.dumps(cache))
+            tmp.replace(cache_file)
+
+        files = [e.name for e in os.scandir(archive) if e.name.endswith(".json")]
+        new = [n for n in files if n not in cache]
+        try:
+            for i, name in enumerate(new, 1):
+                pages = load_token(archive / name).get_prop("page_count")
+                cache[name] = int(pages) if pages is not None else None
+                if i % 1000 == 0:
+                    print(
+                        f"\rReading archived tokens: {i:,}/{len(new):,}...",
+                        end="",
+                        file=sys.stderr,
+                    )
+                if i % 5000 == 0:
+                    save()
+        finally:
+            if new:
+                print(file=sys.stderr)
+                save()
+        return {Path(n).stem: cache[n] for n in files if cache.get(n) is not None}
+
     def _page_counts(self) -> dict[str, int]:
         """Page counts by barcode, from tokens in the done bucket and the archive."""
-        dirs = []
-        if archive := self.config["global"].get("token_archive"):
-            dirs.append(Path(archive))
-        if done := self.pipeline.buckets.get("done"):
-            dirs.append(Path(done))
         counts: dict[str, int] = {}
-        for d in dirs:
-            for token_file in d.glob("*.json"):
-                token = load_token(token_file)
-                pages = token.get_prop("page_count")
-                if token.name and pages is not None:
-                    counts[token.name] = int(pages)
+        if archive := self.config["global"].get("token_archive"):
+            if Path(archive).is_dir():
+                counts.update(self._scan_archive(Path(archive)))
+        if done := self.pipeline.buckets.get("done"):
+            for token_file in Path(done).glob("*.json"):
+                pages = load_token(token_file).get_prop("page_count")
+                if pages is not None:
+                    counts[token_file.stem] = int(pages)
         return counts
 
     def _collect(self) -> dict:
