@@ -1,12 +1,10 @@
-from collections import namedtuple
+from pathlib import Path
 
 import pytest
 
 from pipeline.book_ledger import BookLedger
 from pipeline.plumbing import Pipeline, Token, dump_token
 from reporters.progress_reporter import ProgressReport, human_bytes
-
-Obj = namedtuple("Obj", ["Key", "Size"])
 
 LEDGER = """barcode,date_chosen,date_completed,status
 b1,,,
@@ -51,8 +49,8 @@ def test_counts_volume_and_notes(setup):
     dump_token(Token({"barcode": "b1", "page_count": 120}), archive / "b1.json")
     dump_token(Token({"barcode": "b4"}), buckets["start"] / "b4.err")
     dump_token(Token({"barcode": "b5"}), buckets["start"] / "b5.json")
-    objs = [Obj("b1", 1000), Obj("b2", 2000), Obj("zz", 5)]
-    report = ProgressReport(config, ledger, pipeline, lambda: objs)
+    sizes = {"b1": 1000, "b2": 2000, "zz": 5}
+    report = ProgressReport(config, ledger, pipeline, lambda: sizes)
 
     d = report._collect()
     assert d["total"] == 6
@@ -77,12 +75,31 @@ def test_counts_volume_and_notes(setup):
 def test_err_token_for_stored_book_not_counted_as_error(setup):
     config, ledger, pipeline, buckets, _ = setup
     dump_token(Token({"barcode": "b1"}), buckets["start"] / "b1.err")
-    report = ProgressReport(config, ledger, pipeline, lambda: [Obj("b1", 1)])
+    report = ProgressReport(config, ledger, pipeline, lambda: {"b1": 1})
     assert report._collect()["errored"] == 0
 
 
 def test_sections(setup):
     config, ledger, pipeline, *_ = setup
-    report = ProgressReport(config, ledger, pipeline, lambda: [])
+    report = ProgressReport(config, ledger, pipeline, lambda: {})
     assert "by volume" not in report.report(section="count")
     assert "by count" not in report.report(section="volume")
+
+
+def test_list_sizes_reports_progress():
+    from unittest.mock import MagicMock, patch
+
+    from clients.object_store import S3Client
+
+    with patch("clients.object_store.boto3"):
+        client = S3Client(Path("/tmp"), "bkt")
+    pages = [
+        {"Contents": [{"Key": "a", "Size": 1}, {"Key": "b", "Size": 2}]},
+        {"Contents": [{"Key": "c", "Size": 3}]},
+        {},
+    ]
+    client.client = MagicMock()
+    client.client.get_paginator.return_value.paginate.return_value = pages
+    seen = []
+    assert client.list_sizes(seen.append) == {"a": 1, "b": 2, "c": 3}
+    assert seen == [2, 3, 3]

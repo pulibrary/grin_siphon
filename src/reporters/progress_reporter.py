@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,8 +20,17 @@ def human_bytes(n: int) -> str:
     return f"{n} B"
 
 
-def s3_objects() -> list:
-    return S3Client(Path("/tmp")).list_objects()
+def s3_sizes(bucket: str | None = None) -> dict[str, int]:
+    """Key -> size for every object in the bucket, printing progress to stderr."""
+    client = S3Client(Path("/tmp"), bucket) if bucket else S3Client(Path("/tmp"))
+
+    def progress(n: int) -> None:
+        print(f"\rListing {client.bucket_name}: {n:,} objects...", end="", file=sys.stderr)
+
+    try:
+        return client.list_sizes(progress)
+    finally:
+        print(file=sys.stderr)
 
 
 class ProgressReport(Reporter):
@@ -33,7 +43,7 @@ class ProgressReport(Reporter):
         config: Pipeline configuration.
         ledger: Book ledger to report on.
         pipeline: Pipeline whose buckets are inspected for error tokens.
-        list_objects: Callable returning the S3 objects (with ``Key`` and ``Size``).
+        list_sizes: Callable returning a mapping of S3 object key to size in bytes.
     """
 
     def __init__(
@@ -41,13 +51,14 @@ class ProgressReport(Reporter):
         config: dict,
         ledger: BookLedger,
         pipeline: Pipeline,
-        list_objects: Callable[[], list] = s3_objects,
+        list_sizes: Callable[[], dict[str, int]] | None = None,
     ) -> None:
         super().__init__()
         self.config = config
         self.ledger = ledger
         self.pipeline = pipeline
-        self.list_objects = list_objects
+        bucket = config.get("global", {}).get("object_store")
+        self.list_sizes = list_sizes or (lambda: s3_sizes(bucket))
 
     def _errored_in_pipeline(self) -> set[str]:
         return {
@@ -73,8 +84,7 @@ class ProgressReport(Reporter):
         return counts
 
     def _collect(self) -> dict:
-        objects = self.list_objects()
-        sizes = {obj.Key: obj.Size for obj in objects}
+        sizes = self.list_sizes()
         stored = set(sizes)
         ledger_codes = set(self.ledger.books)
         in_pipeline = {

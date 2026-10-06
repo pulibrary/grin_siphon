@@ -94,14 +94,12 @@ def test_status_command_uses_instance_config(test_config, capsys):
 
 
 def test_report_commands(test_config, capsys, tmp_path):
-    from collections import namedtuple
     from unittest.mock import patch
 
-    Obj = namedtuple("Obj", ["Key", "Size"])
     test_config["global"]["report_dir"] = str(tmp_path / "reports")
     manager = Manager(test_config)
     with patch("reporters.progress_reporter.S3Client") as s3:
-        s3.return_value.list_objects.return_value = [Obj("345", 2048)]
+        s3.return_value.list_sizes.return_value = {"345": 2048}
         assert manager.commands["report progress"]["fn"]() is False
         out = capsys.readouterr().out
         assert "Progress by count" in out and "Progress by volume" in out
