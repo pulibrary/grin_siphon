@@ -72,6 +72,10 @@ class S3Client(ObjectStore):
                 result = self.store_file(file_path, barcode)
         return result
 
+    def stream_object(self, key: str):
+        """Return the object's body as a forward-only binary stream."""
+        return self.client.get_object(Bucket=self.bucket_name, Key=key)["Body"]
+
     def list_sizes(self, progress=None) -> dict[str, int]:
         """Map every object key in the bucket to its size in bytes.
 

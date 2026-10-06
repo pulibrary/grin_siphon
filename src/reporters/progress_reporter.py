@@ -10,6 +10,8 @@ from tabulate import tabulate
 from clients import S3Client
 from pipeline.book_ledger import BookLedger
 from pipeline.plumbing import Pipeline, load_token
+from pipeline.filters.decryptor import count_pages_in
+from reporters.page_estimator import PageSample, estimate_pages, top_up_sample
 from reporters.reporter import Reporter
 
 
@@ -36,6 +38,10 @@ def s3_sizes(bucket: str | None = None) -> dict[str, int]:
         return client.list_sizes(progress)
     finally:
         print(file=sys.stderr)
+
+
+class _NoSample:
+    data: dict = {}
 
 
 class ProgressReport(Reporter):
@@ -124,6 +130,42 @@ class ProgressReport(Reporter):
                     counts[token_file.stem] = int(pages)
         return counts
 
+    def _archive_dir(self) -> Path | None:
+        archive = self.config["global"].get("token_archive")
+        return Path(archive) if archive and Path(archive).is_dir() else None
+
+    def _sample(self) -> PageSample:
+        archive = self._archive_dir()
+        return PageSample(archive) if archive else _NoSample()
+
+    def estimate_pages(self, target: int = 200, count_fn: Callable[[str], int] | None = None) -> int:
+        """Top up the persistent page sample to ``target`` random books.
+
+        Only stored, ledgered books with no recorded page count are eligible.
+
+        Returns:
+            Number of books newly measured.
+        """
+        archive = self._archive_dir()
+        if archive is None:
+            raise RuntimeError("global.token_archive must be an existing directory")
+        sizes = self.list_sizes()
+        recorded = self._page_counts()
+        candidates = {
+            c: sz for c, sz in sizes.items() if c in self.ledger.books and c not in recorded
+        }
+        if count_fn is None:
+            client = S3Client(Path("/tmp"), self.config["global"].get("object_store") or "google-books-dev")
+
+            def count_fn(barcode: str) -> int:
+                body = client.stream_object(barcode)
+                try:
+                    return count_pages_in(body)
+                finally:
+                    body.close()
+
+        return top_up_sample(PageSample(archive), candidates, count_fn, target)
+
     def _collect(self) -> dict:
         sizes = self.list_sizes()
         stored = set(sizes)
@@ -140,6 +182,13 @@ class ProgressReport(Reporter):
         remaining = ledger_codes - stored - errored
         page_counts = self._page_counts()
         with_pages = {c for c in stored if c in page_counts}
+        sampled = self._sample().data
+        sampled_only = {c for c in sampled if c in stored and c not in page_counts}
+        rest = stored - with_pages - sampled_only
+        estimate = estimate_pages(
+            [(sampled[c]["pages"], sampled[c]["bytes"]) for c in sampled_only],
+            sum(sizes[c] for c in rest),
+        ) if rest else None
         return {
             "total": len(ledger_codes),
             "transferred": len(transferred),
@@ -154,12 +203,16 @@ class ProgressReport(Reporter):
             "pages": sum(page_counts[c] for c in with_pages),
             "books_with_pages": len(with_pages),
             "books_without_pages": len(stored) - len(with_pages),
+            "pages_sampled": sum(sampled[c]["pages"] for c in sampled_only),
+            "books_sampled": len(sampled_only),
+            "books_estimated": len(rest),
+            "estimate": estimate,
             "ledger_completed": len(self.ledger.all_completed_books),
         }
 
     @staticmethod
     def _pct(part: int, whole: int) -> str:
-        return f"{part / whole * 100:.1f}%" if whole else "n/a"
+        return f"{part / whole * 100:.2f}%" if whole else "n/a"
 
     @staticmethod
     def _table(rows: list[list], headers: list[str]) -> str:
@@ -179,19 +232,43 @@ class ProgressReport(Reporter):
         rows = [
             ["Objects in storage", f"{d['objects']:,}"],
             ["Total size", f"{human_bytes(d['bytes'])} ({d['bytes']:,} bytes)"],
-            ["Pages transferred", f"{d['pages']:,}"],
-            ["Books with a page count", f"{d['books_with_pages']:,}"],
+            ["Pages recorded at decrypt time", f"{d['pages']:,} ({d['books_with_pages']:,} books)"],
         ]
+        total = d["pages"]
+        if d["books_sampled"]:
+            rows.append(
+                ["Pages measured in sample", f"{d['pages_sampled']:,} ({d['books_sampled']:,} books)"]
+            )
+            total += d["pages_sampled"]
+        if d["estimate"]:
+            est, low, high = d["estimate"]
+            rows.append(
+                [
+                    f"Pages estimated for the other {d['books_estimated']:,} books",
+                    f"≈ {est:,} (95% range {low:,}–{high:,})",
+                ]
+            )
+            rows.append(["**Total pages (estimated)**", f"**≈ {total + est:,}**"])
+        elif d["books_estimated"]:
+            rows.append(["**Total pages (lower bound)**", f"**{total:,}**"])
+        else:
+            rows.append(["**Total pages**", f"**{total:,}**"])
         return "## Progress by volume\n\n" + tabulate(
             rows, headers=["Measure", "Value"], tablefmt="pipe", colalign=("left", "right")
         )
 
     def _notes(self, d: dict) -> str:
         notes = []
-        if d["books_without_pages"]:
+        if d["estimate"]:
             notes.append(
-                f"Page counts are missing for {d['books_without_pages']:,} transferred "
-                "book(s), so the page total is a lower bound."
+                f"Pages for {d['books_estimated']:,} books are estimated from a random sample "
+                f"of {d['books_sampled']:,} books (pages per byte, scaled by size); recorded "
+                "and measured counts are exact."
+            )
+        elif d["books_estimated"]:
+            notes.append(
+                f"No page count for {d['books_estimated']:,} transferred book(s), so the page "
+                "total is a lower bound; run `estimate pages` to sample them."
             )
         if d["errored"]:
             notes.append(

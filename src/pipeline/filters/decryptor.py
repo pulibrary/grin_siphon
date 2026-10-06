@@ -15,24 +15,31 @@ logger: logging.Logger = logging.getLogger(__name__)
 PAGE_IMAGE_SUFFIXES: frozenset[str] = frozenset({".jp2", ".tif", ".tiff", ".jpg", ".jpeg"})
 
 
-def count_pages(tarball: Path) -> int:
-    """Count the page images in a (decrypted) tarball.
+def count_pages_in(fileobj) -> int:
+    """Count the page images in a tarball read as a forward-only stream.
 
     Args:
-        tarball (Path): Path to the .tgz file
-
-    Returns:
-        int: Number of members whose suffix is in PAGE_IMAGE_SUFFIXES
+        fileobj: Binary file-like object with ``read()``; need not be seekable.
 
     Raises:
         tarfile.TarError, OSError: If the archive cannot be read
     """
-    with tarfile.open(tarball, "r:*") as tar:
+    with tarfile.open(fileobj=fileobj, mode="r|*") as tar:
         return sum(
             1
             for member in tar
             if member.isfile() and Path(member.name).suffix.lower() in PAGE_IMAGE_SUFFIXES
         )
+
+
+def count_pages(tarball: Path) -> int:
+    """Count the page images in a (decrypted) tarball on disk.
+
+    Raises:
+        tarfile.TarError, OSError: If the archive cannot be read
+    """
+    with tarball.open("rb") as f:
+        return count_pages_in(f)
 
 
 class Decryptor(Filter):

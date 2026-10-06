@@ -112,6 +112,10 @@ class Manager:
                 "help": "print Markdown progress report by pages and bytes",
                 "fn": lambda: self._report_command("volume"),
             },
+            "estimate pages": {
+                "help": "measure a random sample of 200 stored books to estimate page totals",
+                "fn": self._estimate_pages_command,
+            },
             "save report": {
                 "help": "write the Markdown progress report to a dated file",
                 "fn": self._save_report_command,
@@ -226,6 +230,16 @@ class Manager:
 
     def _report_command(self, section: str | None = None):
         print(self._progress_report(section))
+        return False
+
+    def _estimate_pages_command(self, target: int = 200):
+        report = ProgressReport(self.config, self.ledger, self.pipeline)
+        try:
+            added = report.estimate_pages(target)
+        except RuntimeError as e:
+            print(e)
+            return False
+        print(f"Measured {added} new book(s); sample target is {target}.")
         return False
 
     def _save_report_command(self):

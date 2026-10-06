@@ -99,6 +99,7 @@ Available commands:
 | =report progress=  | Print a Markdown progress report (counts, pages, bytes)                             |
 | =report count=     | Progress report by barcode count only                                               |
 | =report volume=    | Progress report by pages and bytes only                                             |
+| =estimate pages=   | Measure a random sample of 200 stored books (streams each from S3) to estimate pages |
 | =save report=      | Write the report to =progress-YYYY-MM-DD.md= in =global.report_dir= (default: cwd)  |
 | =help=             | List all commands                                                                   |
 | =exit=             | Exit the Manager                                                                    |
@@ -108,7 +109,11 @@ Available commands:
 "Transferred" means the object is in S3; bytes are the S3 object sizes.
 Page counts are recorded by the Decryptor in each token (=page_count=), so
 books transferred before that change appear in the report as lacking a page
-count and the page total is a lower bound.
+count. =estimate pages= streams a random sample of 200 of those books from S3
+(about 20 GB), counts their page images, and caches the result in
+=page_sample.cache= beside the token archive. The report then shows recorded
+pages, measured pages, and an estimate (with a 95% range) for the rest, scaled
+by pages per byte. Re-running tops the sample up to 200.
 
 ** Start the Pipeline
 
