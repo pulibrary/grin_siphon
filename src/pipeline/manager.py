@@ -196,7 +196,7 @@ class Manager:
         return False
 
     def _status_command(self):
-        reporter = StatusReporter(config)
+        reporter = StatusReporter(self.config)
         report = reporter.report()
         if report is not None:
             print(tabulate(report))

@@ -80,3 +80,14 @@ def test_manager(shared_datadir, test_config):
             for tok in manager.secretary.bag.tokens
         ]
     )
+
+
+def test_status_command_uses_instance_config(test_config, capsys):
+    from unittest.mock import patch
+
+    manager = Manager(test_config)
+    with patch("pipeline.manager.StatusReporter") as reporter:
+        reporter.return_value.report.return_value = [["all", 3]]
+        assert manager._status_command() is False
+    reporter.assert_called_once_with(test_config)
+    assert "all" in capsys.readouterr().out
