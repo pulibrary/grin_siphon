@@ -13,7 +13,7 @@ pdm orchestrator
 # Run the token log viewer
 pdm viewer
 
-# Type checking with basedpyright
+# Lint with ruff
 pdm lint
 
 # Run tests with pytest

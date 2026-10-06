@@ -2,12 +2,44 @@ import logging
 import os
 import subprocess
 import sys
+import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from pipeline.plumbing import Filter, Pipe, Token
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+# File extensions that identify one page image inside a GRIN tarball.
+# TODO: verify against a real decrypted tarball.
+PAGE_IMAGE_SUFFIXES: frozenset[str] = frozenset({".jp2", ".tif", ".tiff", ".jpg", ".jpeg"})
+
+
+def count_pages_in(fileobj) -> int:
+    """Count the page images in a tarball read as a forward-only stream.
+
+    Args:
+        fileobj: Binary file-like object with ``read()``; need not be seekable.
+
+    Raises:
+        tarfile.TarError, OSError: If the archive cannot be read
+    """
+    with tarfile.open(fileobj=fileobj, mode="r|*") as tar:
+        return sum(
+            1
+            for member in tar
+            if member.isfile() and Path(member.name).suffix.lower() in PAGE_IMAGE_SUFFIXES
+        )
+
+
+def count_pages(tarball: Path) -> int:
+    """Count the page images in a (decrypted) tarball on disk.
+
+    Raises:
+        tarfile.TarError, OSError: If the archive cannot be read
+    """
+    with tarball.open("rb") as f:
+        return count_pages_in(f)
 
 
 class Decryptor(Filter):
@@ -112,6 +144,12 @@ class Decryptor(Filter):
             self.infile(token).unlink()
             token.put_prop("when_decrypted", str(datetime.now(timezone.utc)))
             self.log_to_token(token, "INFO", "Decryption successful")
+            try:
+                pages = count_pages(self.outfile(token))
+                token.content["page_count"] = pages
+                self.log_to_token(token, "INFO", f"Counted {pages} pages")
+            except (tarfile.TarError, OSError) as e:
+                self.log_to_token(token, "WARNING", f"Could not count pages: {e}")
 
         return successflg
 

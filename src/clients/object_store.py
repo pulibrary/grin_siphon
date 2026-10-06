@@ -7,6 +7,7 @@
 from pathlib import Path
 from collections import namedtuple
 import boto3
+from botocore.config import Config
 
 S3Object = namedtuple(
     "S3Rec",
@@ -33,7 +34,10 @@ class S3Client(ObjectStore):
         self.object_service = "Amazon S3"
         self.bucket_name = bucket_name
         self.cache = local_cache
-        self.client = boto3.client("s3")
+        self.client = boto3.client(
+            "s3",
+            config=Config(connect_timeout=10, read_timeout=60, retries={"max_attempts": 3}),
+        )
 
     def object_exists(self, key: str) -> bool:
         try:
@@ -67,6 +71,28 @@ class S3Client(ObjectStore):
             else:
                 result = self.store_file(file_path, barcode)
         return result
+
+    def stream_object(self, key: str):
+        """Return the object's body as a forward-only binary stream."""
+        return self.client.get_object(Bucket=self.bucket_name, Key=key)["Body"]
+
+    def list_sizes(self, progress=None) -> dict[str, int]:
+        """Map every object key in the bucket to its size in bytes.
+
+        Cheaper than list_objects() on a large bucket: no per-object records.
+
+        Args:
+            progress: Optional callable, called with the running object count
+                after each page of results.
+        """
+        sizes: dict[str, int] = {}
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket_name):
+            for obj in page.get("Contents", []):
+                sizes[obj["Key"]] = obj["Size"]
+            if progress:
+                progress(len(sizes))
+        return sizes
 
     def list_objects(self):
         paginator = self.client.get_paginator("list_objects_v2")

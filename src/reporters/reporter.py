@@ -1,16 +1,10 @@
-import os
 from collections import namedtuple
 from csv import DictWriter
 from io import StringIO
 from pathlib import Path
 
-from tabulate import tabulate
-
 from clients import GrinClient, S3Client
-from pipeline.book_ledger import Book, BookLedger
-from pipeline.config_loader import load_config
-from pipeline.plumbing import Pipeline
-from pipeline.secretary import Secretary
+from pipeline.book_ledger import BookLedger
 from pipeline.token_bag import TokenBag
 
 S3Rec = namedtuple(
@@ -27,8 +21,8 @@ S3Rec = namedtuple(
 )
 
 
-def objects_in_store():
-    s3_client = S3Client("/tmp")
+def objects_in_store() -> list[S3Rec]:
+    s3_client = S3Client(Path("/tmp"))
     paginator = s3_client.client.get_paginator("list_objects_v2")
 
     page_iterator = paginator.paginate(Bucket=s3_client.bucket_name)
@@ -55,12 +49,12 @@ class Reporter:
 
 
 class ObjectStoreReporter(Reporter):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.s3_client = S3Client("/tmp")
+        self.s3_client = S3Client(Path("/tmp"))
         self.grin_client = GrinClient()
 
-    def objects_in_store(self):
+    def objects_in_store(self) -> list[S3Rec]:
         paginator = self.s3_client.client.get_paginator("list_objects_v2")
 
         page_iterator = paginator.paginate(Bucket=self.s3_client.bucket_name)
@@ -72,7 +66,7 @@ class ObjectStoreReporter(Reporter):
 
         return objects
 
-    def format_as_table_to_print(self, oblist):
+    def format_as_table_to_print(self, oblist) -> str:
         with StringIO() as out_buf:
             writer = DictWriter(out_buf, S3Rec._fields)
             writer.writeheader()
@@ -81,13 +75,13 @@ class ObjectStoreReporter(Reporter):
             csv_string = out_buf.getvalue()
         return csv_string
 
-    def report(self, **kwargs) -> str:
+    def report(self, **kwargs) -> str | list[str]:
         format: str = kwargs.get("format")
         match format:
             case "table":
                 return self.format_as_table_to_print(self.objects_in_store())
             case "barcodes":
-                return [ob.key for ob in self.objects_in_store()]
+                return [ob.Key for ob in self.objects_in_store()]
             case _:
                 return ""
 
@@ -113,14 +107,20 @@ class ConvertedReporter(Reporter):
 
     def __init__(self) -> None:
         super().__init__()
-        self.s3_client = S3Client("/tmp")
+        self.s3_client = S3Client(Path("/tmp"))
         self.grin_client = GrinClient()
 
     def report(self):
         grin_barcodes = set([rec["barcode"] for rec in GrinClient().converted_books])
         stored_barcodes = set([obj.Key for obj in objects_in_store()])
 
-        converted_and_stored = grin_barcodes.intersect(stored_barcodes)
+        converted_and_stored = grin_barcodes.intersection(stored_barcodes)
+        return [
+            ["converted on GRIN", len(grin_barcodes)],
+            ["stored in AWS", len(stored_barcodes)],
+            ["converted and stored", len(converted_and_stored)],
+            ["converted, not yet stored", len(grin_barcodes - stored_barcodes)],
+        ]
 
 
 class StatusReporter(Reporter):
@@ -174,7 +174,7 @@ class StatusReporter(Reporter):
     @property
     def s3_books(self):
         if self._s3_books is None:
-            s3 = S3Client("/tmp")
+            s3 = S3Client(Path("/tmp"))
             self._s3_books = {}
             for object in s3.list_objects():
                 self._s3_books[object.Key] = object
@@ -192,5 +192,4 @@ class StatusReporter(Reporter):
         return table
 
     def report(self, **kwargs):
-        grin_data = self.grin_data_table
         return self.grin_data_table

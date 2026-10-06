@@ -80,3 +80,31 @@ def test_manager(shared_datadir, test_config):
             for tok in manager.secretary.bag.tokens
         ]
     )
+
+
+def test_status_command_uses_instance_config(test_config, capsys):
+    from unittest.mock import patch
+
+    manager = Manager(test_config)
+    with patch("pipeline.manager.StatusReporter") as reporter:
+        reporter.return_value.report.return_value = [["all", 3]]
+        assert manager._status_command() is False
+    reporter.assert_called_once_with(test_config)
+    assert "all" in capsys.readouterr().out
+
+
+def test_report_commands(test_config, capsys, tmp_path):
+    from unittest.mock import patch
+
+    test_config["global"]["report_dir"] = str(tmp_path / "reports")
+    manager = Manager(test_config)
+    with patch("reporters.progress_reporter.S3Client") as s3:
+        s3.return_value.list_sizes.return_value = {"345": 2048}
+        assert manager.commands["report progress"]["fn"]() is False
+        out = capsys.readouterr().out
+        assert "Progress by count" in out and "Progress by volume" in out
+        assert "2.00 KiB" in out
+        assert manager.commands["save report"]["fn"]() is False
+    saved = list((tmp_path / "reports").glob("progress-*.md"))
+    assert len(saved) == 1
+    assert "Progress by count" in saved[0].read_text()
