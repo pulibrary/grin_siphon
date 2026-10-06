@@ -7,7 +7,7 @@ from pipeline.book_ledger import BookLedger
 from pipeline.filters.decryptor import count_pages_in
 from pipeline.plumbing import Pipeline, Token, dump_token
 from reporters.page_estimator import PageSample, estimate_pages, top_up_sample
-from reporters.progress_reporter import ProgressReport
+from reporters.progress_reporter import ProgressReport, round_sig
 
 
 def test_count_pages_in_non_seekable_stream():
@@ -85,3 +85,25 @@ def test_report_uses_sample_for_estimate(tmp_path):
     assert "Pages measured in sample" in text
     assert "Total pages (estimated)" in text
     assert "≈ 60" in text  # 10 recorded + 30 measured + ~20 estimated for the other 2 books
+
+
+def test_round_sig():
+    assert round_sig(89_403_099) == 89_400_000
+    assert round_sig(81_527_200) == 81_500_000
+    assert round_sig(96_991_309) == 97_000_000
+    assert round_sig(42) == 42
+    assert round_sig(0) == 0
+
+
+def test_sample_size_comes_from_config(tmp_path):
+    ledger_file = tmp_path / "ledger.csv"
+    ledger_file.write_text(
+        "barcode,date_chosen,date_completed,status\n" + "".join(f"b{i},,,\n" for i in range(6))
+    )
+    archive = tmp_path / "archive"
+    archive.mkdir()
+    config = {"global": {"token_archive": str(archive), "page_sample_size": 2}, "buckets": []}
+    sizes = {f"b{i}": 1000 for i in range(6)}
+    report = ProgressReport(config, BookLedger(str(ledger_file)), Pipeline(config), lambda: sizes)
+    assert report.estimate_pages(count_fn=lambda b: 5) == 2
+    assert report.estimate_pages(target=4, count_fn=lambda b: 5) == 2  # explicit target wins

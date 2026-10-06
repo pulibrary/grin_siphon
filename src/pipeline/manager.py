@@ -113,7 +113,7 @@ class Manager:
                 "fn": lambda: self._report_command("volume"),
             },
             "estimate pages": {
-                "help": "measure a random sample of 200 stored books to estimate page totals",
+                "help": "measure a random sample of stored books (global.page_sample_size, default 200) to estimate page totals",
                 "fn": self._estimate_pages_command,
             },
             "save report": {
@@ -232,14 +232,14 @@ class Manager:
         print(self._progress_report(section))
         return False
 
-    def _estimate_pages_command(self, target: int = 200):
+    def _estimate_pages_command(self):
         report = ProgressReport(self.config, self.ledger, self.pipeline)
         try:
-            added = report.estimate_pages(target)
+            added = report.estimate_pages()
         except RuntimeError as e:
             print(e)
             return False
-        print(f"Measured {added} new book(s); sample target is {target}.")
+        print(f"Measured {added} new book(s).")
         return False
 
     def _save_report_command(self):

@@ -16,6 +16,14 @@ from reporters.reporter import Reporter
 
 
 CACHE_NAME = "page_counts.cache"
+DEFAULT_SAMPLE_SIZE = 200
+
+
+def round_sig(n: int, digits: int = 3) -> int:
+    """Round ``n`` to ``digits`` significant figures (estimates should not look exact)."""
+    if n == 0:
+        return 0
+    return round(n, digits - len(str(abs(n))))
 
 
 def human_bytes(n: int) -> str:
@@ -138,15 +146,22 @@ class ProgressReport(Reporter):
         archive = self._archive_dir()
         return PageSample(archive) if archive else _NoSample()
 
-    def estimate_pages(self, target: int = 200, count_fn: Callable[[str], int] | None = None) -> int:
+    def estimate_pages(self, target: int | None = None, count_fn: Callable[[str], int] | None = None) -> int:
         """Top up the persistent page sample to ``target`` random books.
 
         Only stored, ledgered books with no recorded page count are eligible.
+
+        Args:
+            target: Desired sample size; defaults to ``global.page_sample_size``
+                (200 if unset).
+            count_fn: Returns a book's page count; defaults to streaming it from S3.
 
         Returns:
             Number of books newly measured.
         """
         archive = self._archive_dir()
+        if target is None:
+            target = int(self.config["global"].get("page_sample_size", DEFAULT_SAMPLE_SIZE))
         if archive is None:
             raise RuntimeError("global.token_archive must be an existing directory")
         sizes = self.list_sizes()
@@ -245,10 +260,11 @@ class ProgressReport(Reporter):
             rows.append(
                 [
                     f"Pages estimated for the other {d['books_estimated']:,} books",
-                    f"≈ {est:,} (95% range {low:,}–{high:,})",
+                    f"≈ {round_sig(est):,} "
+                    f"(95% range {round_sig(low):,}–{round_sig(high):,})",
                 ]
             )
-            rows.append(["**Total pages (estimated)**", f"**≈ {total + est:,}**"])
+            rows.append(["**Total pages (estimated)**", f"**≈ {round_sig(total + est):,}**"])
         elif d["books_estimated"]:
             rows.append(["**Total pages (lower bound)**", f"**{total:,}**"])
         else:
