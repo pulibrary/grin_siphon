@@ -156,8 +156,9 @@ space), the Decryptor turns it into =<barcode>.tgz= and deletes the
 encrypted copy, the Uploader copies the =.tgz= to S3, and the Cleaner
 removes it (or moves it to the finished bucket). Because the
 tarballs are large, the number of books in flight determines how much
-disk the processing space needs; the Downloader waits when free space is
-low, and the Cleaner frees it as books finish.
+disk the processing space needs; the Downloader errors a token ("Not enough room to
+download file") if the disk is nearly full, and the Cleaner frees space as
+books finish.
 
 ** Reporting
 
