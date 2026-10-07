@@ -10,6 +10,9 @@ The project uses PDM (Python Dependency Manager) for package management and incl
 # Run the main orchestrator
 pdm orchestrator
 
+# Run the Manager REPL (fill bag, stage, status, tidy, reports)
+pdm run python src/pipeline/manager.py
+
 # Run the token log viewer
 pdm viewer
 
@@ -63,6 +66,27 @@ The system is configured via YAML files (see `config-template.yml`):
 - **Filters**: Configure each processing stage with input/output buckets
 - **Global settings**: Polling intervals, credentials, file paths
 
+### Reporting
+
+Management-facing reports are Markdown, produced by `ProgressReport`
+(`src/reporters/progress_reporter.py`) and exposed as Manager REPL commands:
+`report progress|count|volume`, `save report` (writes `progress-YYYY-MM-DD.md`
+to `global.report_dir`), and `estimate pages`.
+
+- "Transferred" means the object is in S3 (the source of truth for bytes); the ledger supplies the
+  totals. Errored = ledger `failed` plus current `*.err` tokens.
+- Page counts: the Decryptor records `page_count` in each token (`PAGE_IMAGE_SUFFIXES` in
+  `filters/decryptor.py`). Books transferred before that existed have none, so
+  `estimate pages` streams a random sample of S3 tarballs (`global.page_sample_size`, default 200)
+  and `reporters/page_estimator.py` scales the pages-per-byte ratio, with a 95% range. Estimates are
+  rounded to 3 significant figures.
+- Caches live in `global.token_archive`: `page_counts.cache` (page count per archived token, so
+  only new files are parsed) and `page_sample.cache` (sample measurements). Neither ends in
+  `.json`, so token globs ignore them. Delete one to force a rebuild.
+- Production scale (kraken): ~215k S3 objects, ~278k ledger rows, ~126k archived tokens. Listing S3
+  and scanning the archive are slow, so reports print progress to stderr. Run production commands
+  with `pdm run python ...`.
+
 ### Token Flow
 
 1. Books are selected from the ledger into the token bag (`Manager.fill_token_bag()`)
@@ -99,5 +123,6 @@ The project expects certain environment variables and configuration files:
 - `src/pipeline/`: Core pipeline logic and orchestration
 - `src/pipeline/filters/`: Individual processing stage implementations
 - `src/clients/`: External service integrations
-- `src/reporters/`: Status reporting and monitoring utilities
+- `src/reporters/`: Status reports (`reporter.py`), Markdown progress reports
+  (`progress_reporter.py`) and page-count estimation (`page_estimator.py`)
 - `tests/`: Test suite with test data in `tests/data/`
