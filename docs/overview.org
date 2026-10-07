@@ -5,7 +5,7 @@ a pipeline of /buckets/ into which /tokens/ may be placed.
 Asynchronous processes called /filters/ use a /pipe/ to read a token,
 carry out an action, and pass the token onto the next bucket.
 
-A /Token/ is a small JSON files that contain information the filters
+A /Token/ is a small JSON file that contains information the filters
 need in order to run.  Filters log their actions to a token before
 passing it down the pipe.
 
@@ -35,14 +35,133 @@ to the pipeline.
 
 ** Tokens
 
+A token stands for one book. Its file name is the book's barcode
+(=32101015233651.json=), and its contents are a JSON object:
+
+| Field                                        | Meaning                                                  |
+|----------------------------------------------+----------------------------------------------------------|
+| =barcode=                                    | The book's identifier                                    |
+| =processing_bucket=                          | Where this book's files are kept (see [[*Processing Space]]) |
+| =log=                                        | Entries of ={timestamp, stage, level, message}=          |
+| =when_requested=, =when_downloaded=, ...     | UTC time each stage finished                             |
+| =decryption_status=, =upload_status=         | Outcome of the Decryptor and the Uploader                |
+| =page_count=                                 | Page images in the tarball, recorded by the Decryptor    |
+
+Filters add to the token as it passes through them, so a finished token
+is a complete record of what happened to the book. =pdm viewer <token>=
+prints its log.
+
+The extension of a token file says what state it is in:
+
+| Extension | State                                                                    |
+|-----------+--------------------------------------------------------------------------|
+| =.json=   | Waiting in a bucket for the next filter                                  |
+| =.bak=    | Claimed by a filter that is working on it right now                      |
+| =.err=    | Failed permanently; the log's last ERROR or WARNING entry says why       |
+
 ** Buckets
+
+A bucket is a directory. The pipeline is a chain of buckets whose names
+and paths come from the =buckets= section of the configuration file:
+
+#+begin_example
+start → requested → converted → downloaded → decrypted → stored → done
+#+end_example
+
+A token's position in this chain is the only record of how far the book
+has got, so the state of the whole pipeline can be read with =ls=, or with
+the Manager's =pipeline status= command (waiting, in process and errored
+tokens per bucket).
 
 ** Pipes
 
+A /pipe/ connects an input bucket to an output bucket and is the only
+way a filter touches tokens. It makes the handoff safe:
+
+1. =take_token= picks a =.json= file in the input bucket and renames it
+   to =.bak=, so no other process will take it.
+2. The filter does its work.
+3. On success, =put_token= writes the updated token to the output bucket
+   and deletes the =.bak= file.
+4. On permanent failure, the token is written as =.err= in the /input/
+   bucket, where it stays until an operator deals with it.
+5. On a temporary failure (a =RetryableError=, such as a timeout), the
+   token goes back as =.json= and is tried again.
+
+If a filter is killed mid-task, its token is left as =.bak= in the input
+bucket, so nothing is lost. When the filter starts again it renames any
+orphaned =.bak= tokens back to =.json= and carries on.
+
 ** Filters
+
+A filter is a stand-alone process that repeatedly takes a token from its
+input bucket, validates it, does one job, logs the result to the token
+and passes it on. The Orchestrator starts each filter as a subprocess
+with =--input= and =--output= taken from the configuration.
+
+| Filter           | Input → output          | Job                                                      |
+|------------------+-------------------------+----------------------------------------------------------|
+| =Requester=      | start → requested       | Asks GRIN to convert the book                            |
+| =RequestMonitor= | requested → converted   | Polls GRIN until the book is converted (or has failed)   |
+| =Downloader=     | converted → downloaded  | Downloads the encrypted tarball (=.tar.gz.gpg=)          |
+| =Decryptor=      | downloaded → decrypted  | Decrypts it with GPG and counts the page images          |
+| =Uploader=       | decrypted → stored      | Stores the tarball in the S3 bucket                      |
+| =Cleaner=        | stored → done           | Removes the local file                                   |
+
+Each filter implements two methods: =validate_token= (is everything this
+stage needs present?) and =process_token= (do the work, return whether
+it succeeded). The shared =Filter= base class does the pipe handling,
+logging and error handling described above, so a new stage needs only
+those two methods, a new bucket and an entry in the configuration. The
+filters talk to GRIN and S3 through the client modules in =src/clients/=.
 
 ** Ledger
 
+The ledger is a CSV file with one row for every book that might be
+processed:
+
+#+begin_example
+barcode,date_chosen,date_completed,status,failure_reason
+#+end_example
+
+=status= is empty for a book nobody has chosen, then =chosen= when it
+enters the token bag, and finally =completed= or =failed=. The ledger
+records where a book is in its life; the buckets record where it is in
+the pipeline. The Manager keeps them in step: =tidy done= marks tokens in
+=done= as completed and archives them, and =tidy errors= marks errored
+tokens as failed (keeping the reason) and removes them. The ledger is
+backed up to =ledger.csv~= each time it is written.
+
 ** Token Bag
 
+The token bag is a directory of token files for books that have been
+chosen but not yet released. The Secretary picks books from the ledger,
+marks them =chosen= and writes their tokens to the bag. The Stager then
+sets =processing_bucket= in each token and moves them all into the
+=start= bucket. Separating choosing from releasing lets an operator
+control how much work enters the pipeline, and so how much disk space is
+in use, while the filters keep running.
+
 ** Processing Space
+
+The tokens are small; the books are not. The /processing space/ is the
+directory named by =global.processing_bucket=, where each book's
+tarball lives while it is being worked on. It is not a bucket: nothing
+there is a token. The files are named after the barcode, and the token's
+=processing_bucket= field tells each filter where to look.
+
+A book's file changes form as it moves along. The Downloader creates
+=<barcode>.tar.gz.gpg= (after checking that there is enough free disk
+space), the Decryptor turns it into =<barcode>.tgz= and deletes the
+encrypted copy, the Uploader copies the =.tgz= to S3, and the Cleaner
+removes it (or moves it to the finished bucket). Because the
+tarballs are large, the number of books in flight determines how much
+disk the processing space needs; the Downloader waits when free space is
+low, and the Cleaner frees it as books finish.
+
+** Reporting
+
+The Manager can report on progress for managers as Markdown: books
+transferred, remaining and errored, and pages and bytes transferred.
+"Transferred" means the object is in S3. See [[file:operations.org][Operating GRIN Siphon]] for the
+=report=, =save report= and =estimate pages= commands.
