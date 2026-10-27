@@ -134,6 +134,18 @@ class BookLedger:
         else:
             raise ValueError(f"book {barcode} not in ledger")
 
+    def reset_book(self, barcode: str) -> Book:
+        """Return a book to the unprocessed pool so it can be chosen again."""
+        entry: Book | None = self.entry(barcode)
+        if entry:
+            entry.status = None
+            entry.date_chosen = None
+            entry.date_completed = None
+            entry.failure_reason = None
+            return entry
+        else:
+            raise ValueError(f"book {barcode} not in ledger")
+
     @property
     def all_failed_books(self) -> list[Book]:
         return [book for _, book in self.books.items() if book.status == BookStatus.FAILED]

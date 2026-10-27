@@ -65,13 +65,17 @@ class Secretary:
             error_msg = f"{barcode} is not in ledger"
             raise KeyError(error_msg)
 
-    def choose_books(self, how_many: int):
+    def choose_books(self, how_many: int, eligible: set[str] | None = None):
         """Select multiple books from the ledger for processing.
 
         Args:
             how_many (int): Maximum number of books to select
+            eligible (set[str] | None): If given, only books with these barcodes
+                are chosen (e.g. books GRIN has processed)
         """
         unprocessed_books = self.unprocessed_books
+        if eligible is not None:
+            unprocessed_books = [b for b in unprocessed_books if b.barcode in eligible]
         # Clamp the request to available books to prevent overselection
         if how_many > len(unprocessed_books):
             how_many = len(unprocessed_books)

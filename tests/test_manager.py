@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from pipeline.book_ledger import BookLedger
 from pipeline.manager import Manager
 from pipeline.plumbing import Pipeline
 
@@ -46,8 +47,10 @@ def test_config(shared_datadir):
     return config
 
 
-def test_manager(shared_datadir, test_config):
+def test_manager(shared_datadir, test_config, monkeypatch):
     manager = Manager(test_config)
+    every_book = {book.barcode for book in manager.ledger.books.values()}
+    monkeypatch.setattr(manager, "grin_processed_barcodes", lambda: every_book)
     pipeline = Pipeline(test_config)
 
     assert isinstance(manager.pipeline_status, str)
@@ -108,3 +111,42 @@ def test_report_commands(test_config, capsys, tmp_path):
     saved = list((tmp_path / "reports").glob("progress-*.md"))
     assert len(saved) == 1
     assert "Progress by count" in saved[0].read_text()
+
+
+def test_fill_token_bag_skips_books_grin_has_not_processed(test_config, monkeypatch):
+    manager = Manager(test_config)
+    processed = {"32101078166681", "32101078165139"}
+    monkeypatch.setattr(manager, "grin_processed_barcodes", lambda: processed)
+
+    manager.fill_token_bag(5)
+
+    assert manager.token_bag_status == 2
+    assert {book.barcode for book in manager.ledger.all_chosen_books} == processed
+
+
+def test_tidy_errors_resets_books_not_yet_available(test_config, tmp_path):
+    from pipeline.filters.requester import Requester
+    from pipeline.plumbing import Token, dump_token
+
+    test_config["global"]["token_archive"] = str(tmp_path / "archive")
+    manager = Manager(test_config)
+    start = manager.pipeline.bucket("start")
+
+    unavailable = Token({"barcode": "32101078166681"})
+    unavailable.write_log(Requester.ERRORS.NOTAVAILABLE, "ERROR")
+    dump_token(unavailable, start / "32101078166681.err")
+    broken = Token({"barcode": "32101078165139"})
+    broken.write_log("decryption failed", "ERROR")
+    dump_token(broken, start / "32101078165139.err")
+    manager.ledger.choose_book("32101078166681")
+    manager.ledger.choose_book("32101078165139")
+
+    manager._tidy_errors_command()
+
+    ledger = BookLedger(test_config["global"]["ledger_file"])
+    assert ledger.entry("32101078166681").status is None
+    assert ledger.entry("32101078166681").date_chosen is None
+    assert ledger.entry("32101078165139").status == "failed"
+    assert ledger.entry("32101078165139").failure_reason == "decryption failed"
+    assert list(start.glob("*.err")) == []
+    assert (tmp_path / "archive" / "unavailable" / "32101078166681.err").exists()

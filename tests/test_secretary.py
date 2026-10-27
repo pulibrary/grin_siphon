@@ -88,3 +88,14 @@ def test_choose_books(shared_datadir):
         assert len(secretary.chosen_books) == len(pretest_chosen_books) + 2
         for book in secretary.chosen_books:
             assert book.status == BookStatus.CHOSEN
+
+
+def test_choose_books_only_eligible(shared_datadir):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        test_token_dir = Path(tmpdir) / "tokens"
+        shutil.copytree(shared_datadir / "tokens", test_token_dir)
+        secretary = Secretary(TokenBag(test_token_dir), BookLedger(shared_datadir / "test_ledger.csv"))
+
+        secretary.choose_books(5, eligible={"32101015233651"})
+
+        assert [book.barcode for book in secretary.chosen_books] == ["32101015233651"]

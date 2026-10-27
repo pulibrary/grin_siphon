@@ -7,8 +7,10 @@ from pathlib import Path
 
 from tabulate import tabulate
 
+from clients import GrinClient
 from pipeline.book_ledger import BookLedger
 from pipeline.config_loader import load_config
+from pipeline.filters.requester import Requester
 from pipeline.plumbing import Pipeline
 from pipeline.secretary import Secretary
 from pipeline.stager import Stager
@@ -89,7 +91,8 @@ class Manager:
                 "fn": self._show_errors_command,
             },
             "tidy errors": {
-                "help": "record error tokens as failed in ledger and remove them",
+                "help": "record error tokens as failed in ledger and remove them "
+                "(books GRIN has not yet processed go back to unprocessed instead)",
                 "fn": self._tidy_errors_command,
             },
             "tidy done": {
@@ -154,17 +157,27 @@ class Manager:
     def token_bag_status(self):
         return self.secretary.bag_size
 
+    def grin_processed_barcodes(self) -> set[str]:
+        """Barcodes GRIN has processed, i.e. books it can convert."""
+        return {book["barcode"] for book in GrinClient().all_books if book.get("processed_date")}
+
     def fill_token_bag(self, how_many: int | None = None):
-        """Fill the token bag with a specified number of books from the ledger.
+        """Fill the token bag with books from the ledger that GRIN has processed.
+
+        Books Google has not yet scanned and processed are skipped: GRIN would
+        answer "Not yet available for conversion" for them.
 
         Args:
-            how_many (int): Number of books to select from the ledger. Defaults to 1.
+            how_many (int): Number of books to select from the ledger.
         """
         if how_many is None:
             how_many_input = input("How many tokens to take (int)? ")
             how_many = int(how_many_input)
         try:
-            self.secretary.choose_books(how_many)
+            eligible = self.grin_processed_barcodes()
+            available = sum(1 for b in self.secretary.unprocessed_books if b.barcode in eligible)
+            print(f"{available} unprocessed book(s) in the ledger are processed in GRIN.")
+            self.secretary.choose_books(how_many, eligible=eligible)
             self.secretary.commit()
         except ValueError:
             print("number of tokens must be an integer")
@@ -275,21 +288,36 @@ class Manager:
     def _tidy_errors_command(self):
         from pipeline.plumbing import load_token
 
-        count = 0
+        # Books GRIN has not processed yet aren't failures; return them to the
+        # ledger's unprocessed pool and keep their tokens out of the way.
+        unavailable_dir = Path(self.config["global"]["token_archive"]) / "unavailable"
+        failed = reset = 0
         for name, path in self.pipeline.buckets.items():
             for err_file in sorted(path.glob("*.err")):
                 token = load_token(err_file)
                 barcode = token.name
                 reason = self._last_error_message(token)
                 try:
-                    self.ledger.mark_book_failed(barcode, reason)
-                    err_file.unlink()
-                    count += 1
+                    if reason == Requester.ERRORS.NOTAVAILABLE:
+                        self.ledger.reset_book(barcode)
+                        unavailable_dir.mkdir(parents=True, exist_ok=True)
+                        err_file.rename(unavailable_dir / err_file.name)
+                        reset += 1
+                    else:
+                        self.ledger.mark_book_failed(barcode, reason)
+                        err_file.unlink()
+                        failed += 1
                 except ValueError:
                     print(f"  Warning: {barcode} not found in ledger, skipping")
-        if count:
+        if failed or reset:
             self.ledger.write_ledger()
-            print(f"Marked {count} book(s) as failed and removed error tokens.")
+            if failed:
+                print(f"Marked {failed} book(s) as failed and removed error tokens.")
+            if reset:
+                print(
+                    f"Returned {reset} book(s) not yet processed by GRIN to unprocessed; "
+                    f"tokens moved to {unavailable_dir}."
+                )
         else:
             print("No error tokens found.")
         return False
