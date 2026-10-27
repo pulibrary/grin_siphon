@@ -18,6 +18,7 @@ class Requester(Filter):
 
     class ERRORS(StrEnum):
         NOTALLOWED = "Not allowed to be downloaded"
+        NOTAVAILABLE = "Not yet available for conversion"
         OTHERERROR = "Other error"
 
     def __init__(self, pipe: Pipe) -> None:
