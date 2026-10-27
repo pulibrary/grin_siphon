@@ -264,11 +264,18 @@ class Manager:
         return False
 
     def _last_error_message(self, token) -> str | None:
+        # Filters follow the real reason with a generic "... did not run
+        # successfully"; prefer the specific message when there is one.
         log = token.content.get("log", [])
-        for entry in reversed(log):
-            if entry.get("level") in ("ERROR", "WARNING"):
-                return entry.get("message")
-        return None
+        errors = [
+            entry.get("message")
+            for entry in log
+            if entry.get("level") in ("ERROR", "WARNING")
+        ]
+        specific = [m for m in errors if not str(m).endswith("did not run successfully")]
+        if specific:
+            return specific[-1]
+        return errors[-1] if errors else None
 
     def _show_errors_command(self):
         from pipeline.plumbing import load_token

@@ -134,9 +134,11 @@ def test_tidy_errors_resets_books_not_yet_available(test_config, tmp_path):
 
     unavailable = Token({"barcode": "32101078166681"})
     unavailable.write_log(Requester.ERRORS.NOTAVAILABLE, "ERROR")
+    unavailable.write_log("Stage did not run successfully", "ERROR")
     dump_token(unavailable, start / "32101078166681.err")
     broken = Token({"barcode": "32101078165139"})
     broken.write_log("decryption failed", "ERROR")
+    broken.write_log("Stage did not run successfully", "ERROR")
     dump_token(broken, start / "32101078165139.err")
     manager.ledger.choose_book("32101078166681")
     manager.ledger.choose_book("32101078165139")
