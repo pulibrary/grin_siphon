@@ -60,3 +60,16 @@ def test_book_ledger_mark_book_complete(shared_datadir):
     assert book not in ledger.all_unprocessed_books
     assert book not in ledger.all_chosen_books
     assert book in ledger.all_completed_books
+
+
+def test_book_ledger_reset_book(shared_datadir):
+    ledger = BookLedger(shared_datadir / "test_ledger.csv")
+    barcode = "32101078166681"
+    ledger.mark_book_failed(barcode, "Book is in neither in_process nor converted queues")
+
+    book = ledger.reset_book(barcode)
+
+    assert book.status is None
+    assert book.failure_reason is None
+    assert book.date_chosen is None
+    assert book in ledger.all_unprocessed_books
